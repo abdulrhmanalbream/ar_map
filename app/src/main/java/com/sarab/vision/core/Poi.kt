@@ -1,38 +1,15 @@
 package com.sarab.vision.core
 
 /**
- * A point of interest shown at the end of the navigation path.
+ * Straight-line path helper.
  *
- * The MVP ships a single hard-coded POI (offline, no backend), but the type
- * is a list-friendly value object so adding more later is a data change
- * rather than a rewrite.
- */
-data class Poi(
-    val id: String,
-    val title: String,
-    val category: String,
-    val detail: String,
-    val distanceMeters: Float
-)
-
-/** The offline POI catalogue. No network, no database -- see ADR-001. */
-object PoiCatalogue {
-    val DEFAULT = Poi(
-        id = "poi-coffee-01",
-        title = "Coffee Shop",
-        category = "Cafe · Open now",
-        detail = "Specialty espresso and pastries. Seating for 24, " +
-                 "outdoor terrace, and step-free access from the main walkway.",
-        distanceMeters = 4.0f
-    )
-}
-
-/**
- * Builds the walkable path as a list of points on the detected floor plane.
+ * V1 used this to lay a single straight path in front of the user. V2 routes
+ * come from [CampusMap] waypoints instead, but this is kept because it is
+ * still the simplest way to generate an evenly-spaced run of points along a
+ * direction, and it is covered by unit tests.
  *
- * The path runs from just in front of the user to the POI. We generate
- * intermediate points (rather than a single segment) so the ribbon follows
- * the floor and stays visually stable if the plane estimate shifts.
+ * The V1 `Poi` / `PoiCatalogue` types were removed when [Destination]
+ * replaced them; see Waypoints.kt.
  *
  * @param start   where the path begins, on the floor
  * @param forward unit direction along the floor pointing away from the user

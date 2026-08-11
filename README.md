@@ -1,8 +1,20 @@
-# Sarab Vision — AR navigation MVP
+# Sarab Vision — offline AR campus navigation
 
-Offline AR app: opens the camera, finds the floor, draws a glowing path along
-the ground, puts a hovering 3D marker at the end, and shows an info card when
-you tap the marker.
+**V2 (Campus Edition).** Offline AR app: pick a campus destination, point the
+camera at the map board (which becomes the world origin), and follow a glowing
+multi-waypoint path along the floor to a labelled 3D marker.
+
+New in V2 — see [`V2_SETUP.md`](V2_SETUP.md) for setup:
+- **"Select Destination" bottom sheet** with three campus destinations
+- **ARCore Augmented Images**: a printed reference image becomes the world
+  origin (0,0,0), so routes are fixed and repeatable without GPS
+- **Waypoint routes**: real multi-segment paths with mitred corners, not a
+  straight line
+- **Floating 3D text label** naming the destination above the marker
+- **Live remaining distance** measured along the route
+
+V1's straight-path behaviour is still the automatic fallback when no
+reference image is supplied, so the app works out of the box.
 
 **Status: built, tested, and already installed and running on your Galaxy A16.**
 The AR camera feed is live and the app works. A working `app-debug.apk`
@@ -183,19 +195,26 @@ app/src/main/java/com/sarab/vision/
 ├── ArActivity.kt              Session lifecycle, permissions, Compose host
 ├── core/                      ← pure Kotlin, no Android/ARCore (iOS-portable)
 │   ├── Geometry.kt              Vec3, Ray, AABB intersection (tap picking)
-│   └── Poi.kt                   POI model + floor path layout
+│   ├── Waypoints.kt             Destinations, campus routes, resampling,
+│   │                            remaining-distance, image-mounting maths
+│   └── Poi.kt                   Straight-line path helper (V1 fallback)
 ├── ar/
-│   └── ArSceneRenderer.kt     GL thread: plane detection, placement, raycast
+│   ├── ArSceneRenderer.kt     GL thread: origin acquisition, routes, raycast
+│   └── AugmentedImageSupport.kt  Builds the image DB from assets at runtime
 ├── render/
 │   ├── GlUtil.kt              Shader compile/link helpers
 │   ├── CameraBackgroundRenderer.kt   Camera feed (external OES texture)
-│   ├── PathRenderer.kt        Floor ribbon with an animated travelling pulse
-│   └── MarkerRenderer.kt      Hovering, spinning shaded cube
+│   ├── PathRenderer.kt        Mitred floor ribbon, arc-length pulse
+│   ├── MarkerRenderer.kt      Hovering, spinning shaded cube
+│   └── LabelRenderer.kt       Billboarded 3D text label (Canvas → texture)
 └── ui/
+    ├── DestinationSheet.kt    "Select Destination" sheet + distance pill
     ├── PoiCard.kt             The 2D info card
     └── StatusOverlay.kt       Scan hints, permission / unsupported screens
 
-app/src/test/                  9 unit tests for the picking + path maths
+app/src/main/assets/           ← drop your reference image here (V2_SETUP.md)
+app/src/test/                  21 unit tests (picking, routes, mounting)
+V2_SETUP.md                    Reference image + route editing guide
 docs/ADR-001-tech-stack.md     Why native Android, not Unity
 docs/IOS-PORT.md               ARKit port plan
 build.ps1                      Build helper (works around the Arabic path)

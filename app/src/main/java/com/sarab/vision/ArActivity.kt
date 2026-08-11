@@ -11,10 +11,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.ar.core.ArCoreApk
@@ -24,8 +27,12 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.UnavailableException
 import com.sarab.vision.ar.ArSceneRenderer
 import com.sarab.vision.ar.ArUiState
-import com.sarab.vision.core.PoiCatalogue
+import com.sarab.vision.ar.ImageDbResult
+import com.sarab.vision.ar.buildOriginImageDatabase
+import com.sarab.vision.core.Destination
 import com.sarab.vision.ui.BlockingMessage
+import com.sarab.vision.ui.ChangeDestinationButton
+import com.sarab.vision.ui.DestinationSheet
 import com.sarab.vision.ui.PoiCardHost
 import com.sarab.vision.ui.ScanHint
 
@@ -38,13 +45,14 @@ private const val MAX_RESUME_RETRIES = 2
 private const val RESUME_RETRY_DELAY_MS = 600L
 
 /**
- * The single Activity: AR camera on launch, path on the floor, tappable POI.
+ * The single Activity: AR camera, image-anchored campus routes, and the
+ * destination picker.
  *
- * ARCore session lifecycle is the fiddly part here. The rules that matter:
+ * ARCore session lifecycle rules that matter here:
  *  - the session is created only after camera permission is granted
  *  - ARCore may need to install/update itself, which round-trips through
  *    onResume, so creation is retried rather than assumed to succeed once
- *  - session.resume() can throw if the camera is claimed by another app
+ *  - session.resume() can throw FatalException (see the catch below)
  */
 class ArActivity : ComponentActivity() {
 
@@ -57,11 +65,17 @@ class ArActivity : ComponentActivity() {
 
     private var uiState by mutableStateOf<ScreenState>(ScreenState.NeedsPermission)
     private var cardVisible by mutableStateOf(false)
+    private var sheetVisible by mutableStateOf(true)
+    private var selected by mutableStateOf<Destination?>(null)
+    private var remainingMeters by mutableStateOf<Float?>(null)
+
+    /** Which origin mode the session ended up in; drives the hint text. */
+    private var imageDbResult by mutableStateOf<ImageDbResult>(ImageDbResult.NoImageProvided)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        uiState = if (granted) ScreenState.Scanning else ScreenState.PermissionDenied
+        uiState = if (granted) ScreenState.Searching else ScreenState.PermissionDenied
         if (granted) {
             // Permission arrives asynchronously, after onResume has already
             // run, so the session must be created here too.
@@ -77,7 +91,6 @@ class ArActivity : ComponentActivity() {
         surfaceView = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
-            // 8888 colour, 16-bit depth, no stencil, alpha for the overlay.
             setEGLConfigChooser(8, 8, 8, 8, 16, 0)
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
@@ -116,21 +129,59 @@ class ArActivity : ComponentActivity() {
                         )
 
                         ScanHint(
-                            text = getString(R.string.scan_hint),
-                            visible = state is ScreenState.Scanning
+                            text = hintForState(state),
+                            visible = state is ScreenState.Searching &&
+                                !sheetVisible && !cardVisible
                         )
 
-                        ScanHint(
-                            text = getString(R.string.tap_hint),
-                            visible = state is ScreenState.Ready && !cardVisible
-                        )
+                        // While navigating, a compact pill shows the target
+                        // and remaining distance, and reopens the picker.
+                        selected?.let { dest ->
+                            if (!sheetVisible && !cardVisible &&
+                                state is ScreenState.Navigating
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = 36.dp),
+                                    contentAlignment = Alignment.BottomCenter
+                                ) {
+                                    ChangeDestinationButton(
+                                        label = dest.name,
+                                        remainingMeters = remainingMeters,
+                                        onClick = { sheetVisible = true }
+                                    )
+                                }
+                            }
+                        }
 
-                        PoiCardHost(
-                            poi = PoiCatalogue.DEFAULT,
-                            visible = cardVisible,
-                            onClose = {
+                        selected?.let { dest ->
+                            PoiCardHost(
+                                destination = dest,
+                                remainingMeters = remainingMeters,
+                                visible = cardVisible,
+                                onClose = {
+                                    cardVisible = false
+                                    renderer.setHighlighted(false)
+                                }
+                            )
+                        }
+
+                        DestinationSheet(
+                            visible = sheetVisible,
+                            selectedId = selected?.id,
+                            onSelect = { destination ->
+                                selected = destination
+                                remainingMeters = null
+                                renderer.selectDestination(destination)
+                                sheetVisible = false
                                 cardVisible = false
                                 renderer.setHighlighted(false)
+                            },
+                            onDismiss = {
+                                // Only dismissible once something is chosen,
+                                // otherwise there is nothing to look at.
+                                if (selected != null) sheetVisible = false
                             }
                         )
                     }
@@ -139,23 +190,38 @@ class ArActivity : ComponentActivity() {
         }
     }
 
+    /** Context-appropriate guidance while the origin is being acquired. */
+    private fun hintForState(state: ScreenState): String = when {
+        selected == null -> getString(R.string.hint_choose_destination)
+        imageDbResult is ImageDbResult.Ready -> getString(R.string.hint_find_board)
+        else -> getString(R.string.scan_hint)
+    }
+
     /** Bridges GL-thread state changes onto the main thread for Compose. */
     private fun handleArState(state: ArUiState) {
         runOnUiThread {
-            when (state) {
-                ArUiState.Scanning ->
-                    if (uiState !is ScreenState.Unsupported) uiState = ScreenState.Scanning
+            if (uiState is ScreenState.Unsupported) return@runOnUiThread
 
-                ArUiState.Ready ->
-                    if (uiState !is ScreenState.Unsupported) uiState = ScreenState.Ready
+            when (state) {
+                ArUiState.SearchingForImage,
+                ArUiState.Scanning,
+                ArUiState.Tracking,
+                ArUiState.AwaitingDestination -> uiState = ScreenState.Searching
+
+                ArUiState.OriginAcquired -> Unit
+
+                ArUiState.Navigating -> uiState = ScreenState.Navigating
+
+                is ArUiState.DistanceUpdate -> remainingMeters = state.remainingMeters
 
                 ArUiState.MarkerTapped -> {
-                    cardVisible = true
-                    renderer.setHighlighted(true)
+                    if (selected != null) {
+                        cardVisible = true
+                        renderer.setHighlighted(true)
+                    }
                 }
 
-                is ArUiState.Error ->
-                    uiState = ScreenState.Unsupported(state.message)
+                is ArUiState.Error -> uiState = ScreenState.Unsupported(state.message)
             }
         }
     }
@@ -180,7 +246,6 @@ class ArActivity : ComponentActivity() {
 
     /**
      * Creates the ARCore session if needed, then resumes it.
-     *
      * Safe to call repeatedly -- each step is guarded.
      */
     private fun ensureSessionAndResume() {
@@ -188,8 +253,6 @@ class ArActivity : ComponentActivity() {
             try {
                 when (ArCoreApk.getInstance().requestInstall(this, userRequestedArCoreInstall)) {
                     ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
-                        // ARCore is installing; onResume will fire again when
-                        // the user returns. Do not create the session yet.
                         userRequestedArCoreInstall = false
                         return
                     }
@@ -197,25 +260,30 @@ class ArActivity : ComponentActivity() {
                 }
 
                 val newSession = Session(this)
+
+                // Load the printed reference image, if one was supplied.
+                val (imageDb, result) = buildOriginImageDatabase(this, newSession)
+                imageDbResult = result
+                renderer.usingImageOrigin = imageDb != null
+                if (result is ImageDbResult.Rejected) {
+                    Log.w(TAG, "Reference image rejected: ${result.reason}")
+                }
+
                 newSession.configure(
                     Config(newSession).apply {
+                        // Planes are still needed for the no-image fallback.
                         planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
-                        // LATEST_CAMERA_IMAGE keeps the feed responsive; the
-                        // blocking mode stalls the GL thread on slower devices.
                         updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                         lightEstimationMode = Config.LightEstimationMode.DISABLED
-                        // Depth is a meaningful GPU cost and buys us nothing
-                        // for a flat path and a cube. Off by design.
                         depthMode = Config.DepthMode.DISABLED
+                        imageDb?.let { augmentedImageDatabase = it }
                     }
                 )
                 session = newSession
                 renderer.session = newSession
             } catch (e: UnavailableException) {
                 Log.e(TAG, "ARCore unavailable", e)
-                uiState = ScreenState.Unsupported(
-                    getString(R.string.ar_unsupported_body)
-                )
+                uiState = ScreenState.Unsupported(getString(R.string.ar_unsupported_body))
                 return
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create AR session", e)
@@ -228,7 +296,6 @@ class ArActivity : ComponentActivity() {
             session?.resume()
         } catch (e: CameraNotAvailableException) {
             Log.e(TAG, "Camera not available", e)
-            // Drop the session so the next resume rebuilds it cleanly.
             session = null
             renderer.session = null
             uiState = ScreenState.Unsupported("Camera unavailable. Close other camera apps and reopen.")
@@ -251,10 +318,8 @@ class ArActivity : ComponentActivity() {
             if (resumeRetries < MAX_RESUME_RETRIES) {
                 resumeRetries++
                 Log.w(TAG, "Retrying AR session (attempt $resumeRetries)")
-                // Re-enter after the current lifecycle callback unwinds, so
-                // ARCore tears the old session down before we build a new one.
                 surfaceView.postDelayed({ ensureSessionAndResume() }, RESUME_RETRY_DELAY_MS)
-                uiState = ScreenState.Scanning
+                uiState = ScreenState.Searching
             } else {
                 uiState = ScreenState.Unsupported(
                     "AR could not start on this device. Reopen the app, or " +
@@ -264,12 +329,10 @@ class ArActivity : ComponentActivity() {
             return
         }
 
-        // A successful resume clears the retry budget for the next pause cycle.
         resumeRetries = 0
-
         surfaceView.onResume()
-        if (uiState !is ScreenState.Unsupported) {
-            uiState = ScreenState.Scanning
+        if (uiState !is ScreenState.Unsupported && uiState !is ScreenState.Navigating) {
+            uiState = ScreenState.Searching
         }
     }
 
@@ -292,8 +355,13 @@ class ArActivity : ComponentActivity() {
     private sealed interface ScreenState {
         data object NeedsPermission : ScreenState
         data object PermissionDenied : ScreenState
-        data object Scanning : ScreenState
-        data object Ready : ScreenState
+
+        /** Acquiring the world origin (image or floor plane). */
+        data object Searching : ScreenState
+
+        /** Route is drawn. */
+        data object Navigating : ScreenState
+
         data class Unsupported(val reason: String) : ScreenState
     }
 }

@@ -14,8 +14,8 @@ android {
         // mid-range devices in the field.
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0-mvp"
+        versionCode = 2
+        versionName = "2.0-campus"
 
         // Only ship the ABIs ARCore actually supports. This keeps the APK
         // small, which matters on the mid-range devices we target.

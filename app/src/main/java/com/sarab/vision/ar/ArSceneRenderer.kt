@@ -5,37 +5,46 @@ import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.util.Log
 import com.google.ar.core.Anchor
+import com.google.ar.core.AugmentedImage
+import com.google.ar.core.Frame
 import com.google.ar.core.Plane
+import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
+import com.sarab.vision.core.CampusMap
+import com.sarab.vision.core.Destination
 import com.sarab.vision.core.Ray
 import com.sarab.vision.core.Vec3
-import com.sarab.vision.core.buildPathPoints
 import com.sarab.vision.core.intersectAabb
+import com.sarab.vision.core.remainingRouteDistance
+import com.sarab.vision.core.resampleRoute
+import com.sarab.vision.core.toImageLocal
 import com.sarab.vision.render.CameraBackgroundRenderer
+import com.sarab.vision.render.LabelRenderer
 import com.sarab.vision.render.MarkerRenderer
 import com.sarab.vision.render.PathRenderer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 private const val TAG = "SarabArRenderer"
 
-/** How far in front of the user the path is laid, in metres. */
-private const val PATH_LENGTH_M = 4.0f
-
 /** Cube edge length in metres. */
-private const val MARKER_SIZE_M = 0.28f
+private const val MARKER_SIZE_M = 0.32f
 
-/** Cube centre height above the floor, in metres. */
-private const val MARKER_HOVER_M = 0.35f
+/** Cube centre height above the route's end point, in metres. */
+private const val MARKER_HOVER_M = 0.4f
+
+/** Label centre height above the route's end point, in metres. */
+private const val LABEL_HOVER_M = 0.95f
 
 /**
  * Owns the GL thread and every per-frame AR operation.
  *
- * Responsibilities are deliberately narrow: ARCore session pumping, placing
- * the path once a floor is found, drawing, and answering tap queries. All UI
- * state is pushed out through [onStateChanged] so Compose owns presentation.
+ * V2 changes: the world origin comes from a tracked augmented image (the map
+ * board) when one is available, with a floor plane as fallback. Routes are
+ * multi-point waypoint paths selected from the UI.
  */
 class ArSceneRenderer(
     private val onStateChanged: (ArUiState) -> Unit
@@ -44,15 +53,36 @@ class ArSceneRenderer(
     private val cameraRenderer = CameraBackgroundRenderer()
     private val pathRenderer = PathRenderer()
     private val markerRenderer = MarkerRenderer()
+    private val labelRenderer = LabelRenderer()
 
     var session: Session? = null
 
-    /** Anchor at the start of the path; owns the path's world position. */
-    private var pathAnchor: Anchor? = null
+    /**
+     * True when a reference image was loaded into the session.
+     *
+     * When false the app never waits for an image and goes straight to
+     * plane-based placement, so it is usable without a printed marker.
+     */
+    var usingImageOrigin: Boolean = false
 
-    private var markerWorldPos = FloatArray(3)
-    private var markerPlaced = false
-    private var markerHighlighted = false
+    /** Anchor defining the world origin (image centre, or a floor point). */
+    private var originAnchor: Anchor? = null
+    private var originIsFromImage = false
+
+    /** Set from the UI thread; consumed on the GL thread. */
+    private val pendingDestination = AtomicReference<Destination?>(null)
+    private val pendingTap = AtomicBoolean(false)
+    private var pendingTapX = 0f
+    private var pendingTapY = 0f
+
+    private var activeDestination: Destination? = null
+
+    /** Route in world space, rebuilt when the origin or destination changes. */
+    private var worldRoute: List<Vec3> = emptyList()
+    private var labelDirty = false
+
+    private val markerWorldPos = FloatArray(3)
+    private val labelWorldPos = FloatArray(3)
 
     private val viewMatrix = FloatArray(16)
     private val projectionMatrix = FloatArray(16)
@@ -62,12 +92,8 @@ class ArSceneRenderer(
     private var viewportWidth = 1
     private var viewportHeight = 1
 
-    /** Set from the UI thread on tap; consumed on the GL thread. */
-    private val pendingTap = AtomicBoolean(false)
-    private var pendingTapX = 0f
-    private var pendingTapY = 0f
-
     private var lastReportedState: ArUiState? = null
+    private var lastDistanceReport = 0L
 
     fun onTap(x: Float, y: Float) {
         pendingTapX = x
@@ -75,16 +101,23 @@ class ArSceneRenderer(
         pendingTap.set(true)
     }
 
-    /** Clears the current placement so the path can be re-laid. */
-    fun resetPlacement() {
-        pathAnchor?.detach()
-        pathAnchor = null
-        markerPlaced = false
-        markerHighlighted = false
+    /** Selects the route to draw. Safe to call from the UI thread. */
+    fun selectDestination(destination: Destination) {
+        pendingDestination.set(destination)
     }
 
     fun setHighlighted(highlighted: Boolean) {
         markerHighlighted = highlighted
+    }
+
+    private var markerHighlighted = false
+
+    /** Clears the origin so it can be re-acquired. */
+    fun resetOrigin() {
+        originAnchor?.detach()
+        originAnchor = null
+        originIsFromImage = false
+        worldRoute = emptyList()
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -96,6 +129,7 @@ class ArSceneRenderer(
             cameraRenderer.createOnGlThread()
             pathRenderer.createOnGlThread()
             markerRenderer.createOnGlThread()
+            labelRenderer.createOnGlThread()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialise renderers", e)
             report(ArUiState.Error("Graphics initialisation failed"))
@@ -117,7 +151,6 @@ class ArSceneRenderer(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
         val session = this.session ?: return
-        // ARCore needs the texture name every resume, not just at creation.
         session.setCameraTextureName(cameraRenderer.textureId)
 
         val frame = try {
@@ -131,7 +164,7 @@ class ArSceneRenderer(
         cameraRenderer.draw(frame)
 
         if (camera.trackingState != TrackingState.TRACKING) {
-            report(ArUiState.Scanning)
+            report(if (originAnchor == null) currentSearchState() else ArUiState.Tracking)
             return
         }
 
@@ -139,16 +172,34 @@ class ArSceneRenderer(
         camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100f)
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
-        if (!markerPlaced) {
-            tryPlacePath(session, frame)
+        // Acquire the origin, preferring the reference image.
+        if (originAnchor == null) {
+            if (usingImageOrigin) {
+                tryAcquireImageOrigin(frame)
+            } else {
+                tryAcquirePlaneOrigin(session, frame)
+            }
+        }
+
+        // Apply a pending destination change (from the UI thread).
+        pendingDestination.getAndSet(null)?.let { dest ->
+            activeDestination = dest
+            labelDirty = true
+            rebuildRoute()
+        }
+
+        if (labelDirty) {
+            activeDestination?.let {
+                // Rasterising must happen on the GL thread.
+                labelRenderer.setText(it.name, it.category)
+            }
+            labelDirty = false
         }
 
         val elapsed = (System.nanoTime() - startNanos) / 1_000_000_000f
 
-        if (markerPlaced) {
-            // The anchor may drift as ARCore refines its map; re-derive the
-            // path from it each frame so the visuals stay glued to the floor.
-            refreshFromAnchor()
+        if (originAnchor != null && worldRoute.size >= 2) {
+            rebuildRoute()
 
             pathRenderer.draw(viewProjectionMatrix, elapsed)
             markerRenderer.draw(
@@ -158,7 +209,15 @@ class ArSceneRenderer(
                 elapsed,
                 markerHighlighted
             )
-            report(ArUiState.Ready)
+            labelRenderer.draw(viewProjectionMatrix, viewMatrix, labelWorldPos)
+
+            reportDistance(camera.pose)
+            report(ArUiState.Navigating)
+        } else if (originAnchor != null) {
+            // Origin found but nothing selected yet.
+            report(ArUiState.AwaitingDestination)
+        } else {
+            report(currentSearchState())
         }
 
         if (pendingTap.getAndSet(false)) {
@@ -166,29 +225,47 @@ class ArSceneRenderer(
         }
     }
 
+    private fun currentSearchState(): ArUiState =
+        if (usingImageOrigin) ArUiState.SearchingForImage else ArUiState.Scanning
+
     /**
-     * Places the path once a horizontal floor plane is tracked.
+     * Looks for the reference image and anchors the world origin to it.
      *
-     * We anchor to the plane nearest the user rather than the first plane
-     * ARCore reports, because early detections are often a table or a wall
-     * fragment.
+     * Only FULL_TRACKING is accepted: a PAUSED image has a stale pose, and
+     * anchoring the whole campus route to a stale pose puts the path in the
+     * wrong place entirely.
      */
-    private fun tryPlacePath(session: Session, frame: com.google.ar.core.Frame) {
-        val planes = session.getAllTrackables(Plane::class.java)
-            .filter {
+    private fun tryAcquireImageOrigin(frame: Frame) {
+        val images = frame.getUpdatedTrackables(AugmentedImage::class.java)
+        val match = images.firstOrNull {
+            it.name == ORIGIN_IMAGE_NAME &&
                 it.trackingState == TrackingState.TRACKING &&
-                    it.type == Plane.Type.HORIZONTAL_UPWARD_FACING
-            }
+                it.trackingMethod == AugmentedImage.TrackingMethod.FULL_TRACKING
+        } ?: return
 
-        if (planes.isEmpty()) {
-            report(ArUiState.Scanning)
-            return
+        originAnchor?.detach()
+        originAnchor = match.createAnchor(match.centerPose)
+        originIsFromImage = true
+        Log.i(TAG, "World origin acquired from reference image '${match.name}'")
+
+        report(ArUiState.OriginAcquired)
+        rebuildRoute()
+    }
+
+    /**
+     * Fallback origin: the floor in front of the user.
+     *
+     * Used when no reference image was supplied, so the app still works out
+     * of the box. The route is laid out ahead of the user's current heading.
+     */
+    private fun tryAcquirePlaneOrigin(session: Session, frame: Frame) {
+        val planes = session.getAllTrackables(Plane::class.java).filter {
+            it.trackingState == TrackingState.TRACKING &&
+                it.type == Plane.Type.HORIZONTAL_UPWARD_FACING
         }
+        if (planes.isEmpty()) return
 
-        val camera = frame.camera
-        val camPose = camera.pose
-
-        // Prefer the plane closest to (and below) the camera -- the floor.
+        val camPose = frame.camera.pose
         val floor = planes.minByOrNull { plane ->
             val c = plane.centerPose
             val dx = c.tx() - camPose.tx()
@@ -196,64 +273,97 @@ class ArSceneRenderer(
             dx * dx + dz * dz
         } ?: return
 
-        // Forward direction on the floor: camera forward flattened to the
-        // horizontal plane. -Z is forward in ARCore's camera space.
+        // Build an origin pose on the floor, rotated to face the user's
+        // heading, so authored "+Y forwards" runs away from the user.
         val zAxis = camPose.zAxis
         var fx = -zAxis[0]
         var fz = -zAxis[2]
         val len = kotlin.math.sqrt(fx * fx + fz * fz)
-        if (len < 1e-4f) {
-            // The user is pointing straight down; no usable heading yet.
-            report(ArUiState.Scanning)
-            return
-        }
+        if (len < 1e-4f) return
         fx /= len
         fz /= len
 
-        // Start the path slightly ahead so it is not underfoot.
-        val startX = camPose.tx() + fx * 0.6f
-        val startZ = camPose.tz() + fz * 0.6f
-        val floorY = floor.centerPose.ty()
+        val yaw = kotlin.math.atan2(fx, fz)
+        val half = yaw / 2f
+        val rotation = floatArrayOf(0f, kotlin.math.sin(half), 0f, kotlin.math.cos(half))
+        val translation = floatArrayOf(
+            camPose.tx() + fx * 0.4f,
+            floor.centerPose.ty(),
+            camPose.tz() + fz * 0.4f
+        )
 
-        val anchorPose = com.google.ar.core.Pose.makeTranslation(startX, floorY, startZ)
-        pathAnchor?.detach()
-        pathAnchor = floor.createAnchor(anchorPose)
+        originAnchor?.detach()
+        originAnchor = session.createAnchor(Pose(translation, rotation))
+        originIsFromImage = false
+        Log.i(TAG, "World origin acquired from floor plane (no reference image)")
 
-        pathForwardX = fx
-        pathForwardZ = fz
-        markerPlaced = true
-        report(ArUiState.Ready)
+        report(ArUiState.OriginAcquired)
+        rebuildRoute()
     }
 
-    private var pathForwardX = 0f
-    private var pathForwardZ = -1f
-
-    /** Rebuilds path geometry and marker position from the live anchor pose. */
-    private fun refreshFromAnchor() {
-        val anchor = pathAnchor ?: return
+    /**
+     * Transforms the active destination's waypoints from origin-local space
+     * into world space and uploads the ribbon.
+     *
+     * Recomputed every frame while navigating because the anchor's pose is
+     * continually refined by ARCore; using a stale transform makes the path
+     * visibly drift away from the floor.
+     */
+    private fun rebuildRoute() {
+        val anchor = originAnchor ?: return
+        val destination = activeDestination ?: return
         if (anchor.trackingState != TrackingState.TRACKING) return
 
-        val p = anchor.pose
-        val start = Vec3(p.tx(), p.ty() + 0.01f, p.tz())
-        val forward = Vec3(pathForwardX, 0f, pathForwardZ)
+        val originPose = anchor.pose
 
-        val points = buildPathPoints(start, forward, PATH_LENGTH_M)
-        pathRenderer.updatePath(points)
+        val local = destination.waypoints.map { wp ->
+            if (originIsFromImage) {
+                toImageLocal(wp, CampusMap.mounting, CampusMap.boardHeightMeters)
+            } else {
+                // Plane origin: the anchor already sits on the floor and is
+                // yawed to the user's heading, so authored +Y (forwards) maps
+                // to -Z, which is forward in ARCore's right-handed frame.
+                Vec3(wp.x, 0f, -wp.y)
+            }
+        }
 
-        val end = points.lastOrNull() ?: return
+        val dense = resampleRoute(local, maxSegment = 0.5f)
+        val world = dense.map { p ->
+            val out = FloatArray(3)
+            originPose.transformPoint(floatArrayOf(p.x, p.y, p.z), 0, out, 0)
+            Vec3(out[0], out[1], out[2])
+        }
+
+        worldRoute = world
+        pathRenderer.updatePath(world, widthMeters = 0.26f)
+
+        val end = world.lastOrNull() ?: return
         markerWorldPos[0] = end.x
         markerWorldPos[1] = end.y + MARKER_HOVER_M
         markerWorldPos[2] = end.z
+
+        labelWorldPos[0] = end.x
+        labelWorldPos[1] = end.y + LABEL_HOVER_M
+        labelWorldPos[2] = end.z
+    }
+
+    /** Emits the remaining walking distance, throttled to ~2 Hz. */
+    private fun reportDistance(cameraPose: Pose) {
+        val now = System.currentTimeMillis()
+        if (now - lastDistanceReport < 500) return
+        lastDistanceReport = now
+
+        if (worldRoute.size < 2) return
+        val here = Vec3(cameraPose.tx(), cameraPose.ty(), cameraPose.tz())
+        val remaining = remainingRouteDistance(worldRoute, here)
+        onStateChanged(ArUiState.DistanceUpdate(remaining))
     }
 
     /**
      * Converts a screen tap into a world ray and tests it against the marker.
-     *
-     * Uses an inverse view-projection unprojection rather than ARCore's
-     * hit-test, because we need to hit our own virtual cube, not a plane.
      */
     private fun handleTap(screenX: Float, screenY: Float) {
-        if (!markerPlaced) return
+        if (worldRoute.isEmpty()) return
 
         val invVp = FloatArray(16)
         if (!Matrix.invertM(invVp, 0, viewProjectionMatrix, 0)) {
@@ -261,8 +371,6 @@ class ArSceneRenderer(
             return
         }
 
-        // Screen -> normalised device coordinates. Y is flipped because
-        // Android touch origin is top-left and NDC origin is bottom-left.
         val ndcX = (2f * screenX / viewportWidth) - 1f
         val ndcY = 1f - (2f * screenY / viewportHeight)
 
@@ -272,17 +380,15 @@ class ArSceneRenderer(
         val ray = Ray(near, (far - near).normalized())
         val center = Vec3(markerWorldPos[0], markerWorldPos[1], markerWorldPos[2])
 
-        // Test against a slightly enlarged box: the cube is small on screen at
-        // 4m, and a finger is not precise. This is a usability allowance, not
-        // a correctness fudge.
-        val pickRadius = MARKER_SIZE_M * 0.9f
+        // Enlarged pick volume: the marker can be 15m away, and a fingertip
+        // is not precise. Covers the label above it too.
+        val pickRadius = MARKER_SIZE_M * 1.6f
 
         if (intersectAabb(ray, center, pickRadius) != null) {
             report(ArUiState.MarkerTapped)
         }
     }
 
-    /** Unprojects an NDC point at the given depth into world space. */
     private fun unproject(invVp: FloatArray, x: Float, y: Float, z: Float): Vec3? {
         val input = floatArrayOf(x, y, z, 1f)
         val out = FloatArray(4)
@@ -291,19 +397,41 @@ class ArSceneRenderer(
         return Vec3(out[0] / out[3], out[1] / out[3], out[2] / out[3])
     }
 
-    /** Pushes state to the UI, suppressing duplicate emissions. */
+    /** Pushes state to the UI, suppressing duplicate level emissions. */
     private fun report(state: ArUiState) {
-        // MarkerTapped is an event, not a level -- always deliver it.
-        if (state != ArUiState.MarkerTapped && state == lastReportedState) return
-        lastReportedState = state
+        // Events must always be delivered; levels are deduplicated.
+        val isEvent = state is ArUiState.MarkerTapped ||
+            state is ArUiState.OriginAcquired ||
+            state is ArUiState.DistanceUpdate
+        if (!isEvent && state == lastReportedState) return
+        if (!isEvent) lastReportedState = state
         onStateChanged(state)
     }
 }
 
 /** What the AR layer wants the UI to show. */
 sealed interface ArUiState {
+    /** Looking for the printed reference image. */
+    data object SearchingForImage : ArUiState
+
+    /** No reference image in use; looking for a floor plane. */
     data object Scanning : ArUiState
-    data object Ready : ArUiState
+
+    /** Camera tracking is degraded (fast motion, low light). */
+    data object Tracking : ArUiState
+
+    /** Origin just established. */
+    data object OriginAcquired : ArUiState
+
+    /** Origin known, waiting for the user to pick a destination. */
+    data object AwaitingDestination : ArUiState
+
+    /** Route is drawn and the user is walking it. */
+    data object Navigating : ArUiState
+
+    data class DistanceUpdate(val remainingMeters: Float) : ArUiState
+
     data object MarkerTapped : ArUiState
+
     data class Error(val message: String) : ArUiState
 }

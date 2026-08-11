@@ -30,7 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sarab.vision.core.Poi
+import com.sarab.vision.core.Destination
+import kotlin.math.roundToInt
 
 /**
  * The 2D information card that appears over the camera feed when the user
@@ -41,7 +42,8 @@ import com.sarab.vision.core.Poi
  */
 @Composable
 fun PoiCard(
-    poi: Poi,
+    destination: Destination,
+    remainingMeters: Float?,
     visible: Boolean,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
@@ -74,7 +76,7 @@ fun PoiCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = poi.title.take(1),
+                            text = destination.name.take(1),
                             color = Color(0xFF1B2430),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
@@ -85,20 +87,22 @@ fun PoiCard(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = poi.title,
+                            text = destination.name,
                             color = Color.White,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = poi.category,
+                            text = destination.category,
                             color = Color(0xFF9FB3C8),
                             fontSize = 13.sp
                         )
                     }
 
                     Text(
-                        text = "${poi.distanceMeters.toInt()} m",
+                        // Live remaining distance when we have it, otherwise
+                        // the total route length.
+                        text = "${(remainingMeters ?: destination.routeLengthMeters).roundToInt()} m",
                         color = Color(0xFF4FC3F7),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
@@ -108,7 +112,7 @@ fun PoiCard(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = poi.detail,
+                    text = destination.detail,
                     color = Color(0xFFC7D3DF),
                     fontSize = 14.sp,
                     lineHeight = 20.sp
@@ -135,7 +139,8 @@ fun PoiCard(
 /** Bottom-anchored container so the card sits above the system nav bar. */
 @Composable
 fun PoiCardHost(
-    poi: Poi,
+    destination: Destination,
+    remainingMeters: Float?,
     visible: Boolean,
     onClose: () -> Unit
 ) {
@@ -144,7 +149,12 @@ fun PoiCardHost(
         contentAlignment = Alignment.BottomCenter
     ) {
         Column(verticalArrangement = Arrangement.Bottom) {
-            PoiCard(poi = poi, visible = visible, onClose = onClose)
+            PoiCard(
+                destination = destination,
+                remainingMeters = remainingMeters,
+                visible = visible,
+                onClose = onClose
+            )
             Spacer(modifier = Modifier.height(24.dp))
         }
     }

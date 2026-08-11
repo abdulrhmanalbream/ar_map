@@ -3,6 +3,16 @@ package com.sarab.vision.render
 import android.opengl.GLES20
 import com.sarab.vision.core.Vec3
 
+/** Upper bound on corner miter stretch, to survive near-switchback turns. */
+private const val MAX_MITER_SCALE = 3f
+
+/** Perpendicular to [dir] in the floor plane: cross(dir, UP). */
+private fun floorPerpendicular(dir: Vec3): Vec3 = Vec3(
+    dir.z * Vec3.UP.y - dir.y * Vec3.UP.z,
+    dir.x * Vec3.UP.z - dir.z * Vec3.UP.x,
+    dir.y * Vec3.UP.x - dir.x * Vec3.UP.y
+).normalized()
+
 /**
  * Draws the navigation path as a flat ribbon lying on the floor.
  *
@@ -19,10 +29,14 @@ class PathRenderer {
     private var mvpUniform = 0
     private var timeUniform = 0
     private var colorUniform = 0
+    private var repeatsUniform = 0
 
     private var vertexBuffer = floatBuffer(0)
     private var progressBuffer = floatBuffer(0)
     private var vertexCount = 0
+
+    /** Pulse repeats across the ribbon, derived from the route length. */
+    private var pulseRepeats = 2f
 
     private val vertexShader = """
         uniform mat4 u_MvpMatrix;
@@ -37,13 +51,16 @@ class PathRenderer {
 
     // A travelling pulse gives the path a sense of direction, which reads as
     // "go this way" far better than a static stripe.
+    // u_Repeats keeps one pulse per ~2.5m regardless of route length, so a
+    // 15m route does not get one enormous smear and a 4m route a strobe.
     private val fragmentShader = """
         precision mediump float;
         uniform float u_Time;
         uniform vec4 u_Color;
+        uniform float u_Repeats;
         varying float v_Progress;
         void main() {
-            float pulse = fract(v_Progress * 2.0 - u_Time * 0.6);
+            float pulse = fract(v_Progress * u_Repeats - u_Time * 0.6);
             float glow = smoothstep(0.0, 0.35, pulse) * (1.0 - smoothstep(0.55, 0.95, pulse));
             float alpha = u_Color.a * (0.45 + 0.55 * glow);
             gl_FragColor = vec4(u_Color.rgb, alpha);
@@ -57,6 +74,7 @@ class PathRenderer {
         mvpUniform = GLES20.glGetUniformLocation(program, "u_MvpMatrix")
         timeUniform = GLES20.glGetUniformLocation(program, "u_Time")
         colorUniform = GLES20.glGetUniformLocation(program, "u_Color")
+        repeatsUniform = GLES20.glGetUniformLocation(program, "u_Repeats")
     }
 
     /**
@@ -75,26 +93,49 @@ class PathRenderer {
         val verts = FloatArray(points.size * 2 * 3)
         val progress = FloatArray(points.size * 2)
 
-        for (i in points.indices) {
-            // Direction along the path at this point, from the neighbouring
-            // segment (forward difference, backward at the last point).
-            val dir = if (i < points.size - 1) {
-                (points[i + 1] - points[i]).normalized()
-            } else {
-                (points[i] - points[i - 1]).normalized()
-            }
+        // Arc-length parameterisation. Using the vertex index instead would
+        // make the animated pulse speed up over long segments and crawl over
+        // short ones, which is very visible on a resampled multi-leg route.
+        val cumulative = FloatArray(points.size)
+        for (i in 1 until points.size) {
+            cumulative[i] = cumulative[i - 1] + (points[i] - points[i - 1]).length()
+        }
+        val totalLength = cumulative.last().takeIf { it > 1e-6f } ?: 1f
 
-            // Perpendicular in the floor plane: cross(dir, up) for a path
-            // lying flat on the ground.
-            val side = Vec3(
-                dir.z * Vec3.UP.y - dir.y * Vec3.UP.z,
-                dir.x * Vec3.UP.z - dir.z * Vec3.UP.x,
-                dir.y * Vec3.UP.x - dir.x * Vec3.UP.y
-            ).normalized()
+        // One pulse per ~2.5 metres of real-world route.
+        pulseRepeats = (totalLength / 2.5f).coerceIn(1f, 12f)
+
+        for (i in points.indices) {
+            // Incoming and outgoing directions at this vertex.
+            val incoming = if (i > 0) (points[i] - points[i - 1]).normalized() else null
+            val outgoing =
+                if (i < points.size - 1) (points[i + 1] - points[i]).normalized() else null
+
+            val sideIn = incoming?.let { floorPerpendicular(it) }
+            val sideOut = outgoing?.let { floorPerpendicular(it) }
+
+            // Miter the corner: averaging the two edge normals and scaling by
+            // 1/cos(theta/2) keeps the ribbon a constant width through a turn.
+            // A forward-difference normal (V1's approach) tears the ribbon
+            // open on the outside of every corner, which multi-waypoint
+            // routes make obvious.
+            val side = when {
+                sideIn != null && sideOut != null -> {
+                    val avg = (sideIn + sideOut).normalized()
+                    val cosHalf = avg.dot(sideOut)
+                    // Clamp the miter so a near-180-degree switchback cannot
+                    // fling the vertex off to infinity.
+                    val scale = if (cosHalf > 0.2f) 1f / cosHalf else MAX_MITER_SCALE
+                    avg * scale.coerceAtMost(MAX_MITER_SCALE)
+                }
+                sideOut != null -> sideOut
+                sideIn != null -> sideIn
+                else -> Vec3(1f, 0f, 0f)
+            }
 
             val left = points[i] - side * half
             val right = points[i] + side * half
-            val t = i.toFloat() / (points.size - 1)
+            val t = cumulative[i] / totalLength
 
             val base = i * 6
             verts[base + 0] = left.x
@@ -128,6 +169,7 @@ class PathRenderer {
 
         GLES20.glUniformMatrix4fv(mvpUniform, 1, false, mvpMatrix, 0)
         GLES20.glUniform1f(timeUniform, timeSeconds)
+        GLES20.glUniform1f(repeatsUniform, pulseRepeats)
         GLES20.glUniform4f(colorUniform, 0.31f, 0.76f, 0.97f, 0.9f)
 
         GLES20.glVertexAttribPointer(

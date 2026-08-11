@@ -6,6 +6,9 @@
     <string name="scan_found">Floor detected — follow the path</string>
     <string name="tap_hint">Tap the marker for details</string>
 
+    <string name="hint_choose_destination">Choose a destination to begin</string>
+    <string name="hint_find_board">Point your camera at the campus map board</string>
+
     <string name="camera_permission_title">Camera access needed</string>
     <string name="camera_permission_body">Sarab Vision uses the camera to place the navigation path on the floor in front of you. Nothing leaves your device.</string>
     <string name="camera_permission_grant">Grant access</string>
