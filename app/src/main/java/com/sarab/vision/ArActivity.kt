@@ -21,8 +21,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.ar.core.ArCoreApk
+import com.google.ar.core.CameraConfig
+import com.google.ar.core.CameraConfigFilter
 import com.google.ar.core.Config
 import com.google.ar.core.Session
+import java.util.EnumSet
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.UnavailableException
 import com.sarab.vision.ar.ArSceneRenderer
@@ -274,6 +277,37 @@ class ArActivity : ComponentActivity() {
                 }
 
                 val newSession = Session(this)
+
+                // Pick the cheapest camera configuration available.
+                //
+                // ARCore defaults to a high-resolution CPU image and a 30/60fps
+                // adaptive stream. On a mid-range phone that pegs ARCore's own
+                // vision threads (drishti / sensor event loop), which was
+                // measured at ~200% CPU here: the device got hot, the UI
+                // janked, and thermal throttling made tracking drop in and out.
+                //
+                // We only need to track one printed image and a floor plane,
+                // so the lowest CPU image size and a fixed 30fps are ample and
+                // cut the load dramatically.
+                try {
+                    val filter = CameraConfigFilter(newSession)
+                        .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_30))
+                    val configs = newSession.getSupportedCameraConfigs(filter)
+                    val cheapest = configs.minByOrNull {
+                        it.imageSize.width.toLong() * it.imageSize.height.toLong()
+                    }
+                    if (cheapest != null) {
+                        newSession.cameraConfig = cheapest
+                        Log.i(
+                            TAG,
+                            "Camera config: ${cheapest.imageSize.width}x" +
+                                "${cheapest.imageSize.height} (lowest of ${configs.size})"
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Not fatal -- fall back to ARCore's default config.
+                    Log.w(TAG, "Could not select a low-cost camera config", e)
+                }
 
                 // Load the printed reference image, if one was supplied.
                 val (imageDb, result) = buildOriginImageDatabase(this, newSession)

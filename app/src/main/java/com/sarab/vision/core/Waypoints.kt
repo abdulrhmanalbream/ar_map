@@ -47,12 +47,28 @@ data class Destination(
     val name: String,
     val category: String,
     val detail: String,
-    val waypoints: List<Vec3>
+    val waypoints: List<Vec3>,
+    /** Opening hours, shown on the detail card. */
+    val hours: String = "",
+    /** Short labelled facts rendered as a two-column grid on the card. */
+    val facts: List<Fact> = emptyList(),
+    /** Amenity chips (step-free access, wifi, ...). */
+    val amenities: List<String> = emptyList()
 ) {
     /** Total walking distance along the route, in metres. */
     val routeLengthMeters: Float
         get() = waypoints.zipWithNext().fold(0f) { acc, (a, b) -> acc + (b - a).length() }
+
+    /**
+     * Rough walking time at a normal indoor pace (~1.3 m/s), in minutes.
+     * Always at least 1 so the card never reads "0 min".
+     */
+    val walkMinutes: Int
+        get() = kotlin.math.max(1, kotlin.math.ceil(routeLengthMeters / 1.3f / 60f).toInt())
 }
+
+/** A single labelled fact on the destination detail card. */
+data class Fact(val label: String, val value: String)
 
 /**
  * The offline campus map.
@@ -85,8 +101,17 @@ object CampusMap {
         id = "dest-stadium",
         name = "Stadium",
         category = "Sports · 350 seats",
-        detail = "Main athletics field and grandstand. Step-free access via " +
-                 "the north gate. Open during scheduled events.",
+        detail = "Main athletics field and grandstand, with an eight-lane " +
+                 "running track and a full-size pitch. Step-free access via " +
+                 "the north gate; the ticket desk sits under the west stand.",
+        hours = "Open 06:00 – 22:00 · Events until 23:30",
+        facts = listOf(
+            Fact("Building", "Outdoor · North campus"),
+            Fact("Capacity", "350 seated"),
+            Fact("Track", "8 lanes · 400 m"),
+            Fact("Entrance", "North gate")
+        ),
+        amenities = listOf("Step-free", "Parking", "Water", "Changing rooms"),
         waypoints = listOf(
             Vec3(0.0f, 1.0f, 0f),
             Vec3(0.0f, 4.0f, 0f),
@@ -101,7 +126,16 @@ object CampusMap {
         name = "Dorms",
         category = "Residence · Blocks A–D",
         detail = "Student residence blocks with 24-hour reception in Block A. " +
-                 "Laundry and common rooms on the ground floor.",
+                 "Laundry, study rooms and common areas are on the ground " +
+                 "floor of each block; visitors register at reception.",
+        hours = "Reception open 24 hours",
+        facts = listOf(
+            Fact("Blocks", "A, B, C, D"),
+            Fact("Floors", "4 per block"),
+            Fact("Reception", "Block A · 24h"),
+            Fact("Laundry", "Ground floor")
+        ),
+        amenities = listOf("Step-free", "Wi-Fi", "Laundry", "Study rooms"),
         waypoints = listOf(
             Vec3(0.0f, 1.0f, 0f),
             Vec3(-2.5f, 3.5f, 0f),
@@ -114,8 +148,17 @@ object CampusMap {
         id = "dest-engineering",
         name = "Engineering College",
         category = "Faculty · Building E",
-        detail = "Lecture halls, robotics lab and the fabrication workshop. " +
-                 "Main entrance faces the central courtyard.",
+        detail = "Lecture halls, the robotics lab and the fabrication " +
+                 "workshop. The main entrance faces the central courtyard; " +
+                 "labs are on floors 2 and 3 and need a student card.",
+        hours = "Sun – Thu 07:30 – 20:00 · Closed Fri",
+        facts = listOf(
+            Fact("Building", "E · Central campus"),
+            Fact("Floors", "4 + basement"),
+            Fact("Labs", "Robotics · Fab lab"),
+            Fact("Access", "Student card")
+        ),
+        amenities = listOf("Step-free", "Wi-Fi", "Cafeteria", "Prayer room"),
         waypoints = listOf(
             Vec3(0.0f, 1.0f, 0f),
             Vec3(2.0f, 3.0f, 0f),

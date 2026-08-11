@@ -6,6 +6,7 @@ import android.opengl.Matrix
 import android.util.Log
 import com.google.ar.core.Anchor
 import com.google.ar.core.AugmentedImage
+import com.google.ar.core.Config
 import com.google.ar.core.Frame
 import com.google.ar.core.Plane
 import com.google.ar.core.Pose
@@ -13,6 +14,7 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.sarab.vision.core.CampusMap
 import com.sarab.vision.core.Destination
+import com.sarab.vision.core.ImageMounting
 import com.sarab.vision.core.Ray
 import com.sarab.vision.core.Vec3
 import com.sarab.vision.core.intersectAabb
@@ -47,6 +49,13 @@ private const val LABEL_HOVER_M = 0.95f
  * a camera feed with nothing on it.
  */
 private const val IMAGE_SEARCH_TIMEOUT_SEC = 12f
+
+/**
+ * Squared distance (m^2) the origin anchor must move before the route is
+ * rebuilt. 1cm -- below the visible threshold, far above ARCore's per-frame
+ * pose jitter.
+ */
+private const val ORIGIN_REBUILD_THRESHOLD_SQ = 0.01f * 0.01f
 
 /**
  * Owns the GL thread and every per-frame AR operation.
@@ -98,6 +107,13 @@ class ArSceneRenderer(
 
     private val markerWorldPos = FloatArray(3)
     private val labelWorldPos = FloatArray(3)
+    private val originMarkerPos = FloatArray(3)
+
+    /** Origin position the current route geometry was built from. */
+    private val lastBuiltOriginPos = floatArrayOf(Float.NaN, Float.NaN, Float.NaN)
+
+    /** True once the origin cube has a valid position to fall back on. */
+    private var haveOriginMarkerPos = false
 
     private val viewMatrix = FloatArray(16)
     private val projectionMatrix = FloatArray(16)
@@ -133,9 +149,23 @@ class ArSceneRenderer(
         originAnchor = null
         originIsFromImage = false
         worldRoute = emptyList()
+        haveOriginMarkerPos = false
+        lastBuiltOriginPos[0] = Float.NaN
         // Give the reference image a fresh chance after an explicit reset.
         imageSearchStartNanos = 0L
         imageSearchTimedOut = false
+
+        // Plane finding was switched off once the origin was fixed; it has to
+        // come back or the plane fallback could never acquire again.
+        session?.let { s ->
+            try {
+                val cfg = s.config
+                cfg.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+                s.configure(cfg)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not re-enable plane finding", e)
+            }
+        }
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -238,7 +268,42 @@ class ArSceneRenderer(
         val elapsed = (System.nanoTime() - startNanos) / 1_000_000_000f
 
         if (originAnchor != null && worldRoute.size >= 2) {
-            rebuildRoute()
+            // Only rebuild when the anchor has actually MOVED. Rebuilding
+            // every frame re-transformed ~40 points, re-built the ribbon and
+            // re-uploaded GPU buffers 60x a second, which pushed the app to
+            // >120% CPU: the phone got hot and janky, and the thermal
+            // throttling made ARCore drop tracking, so the cube flickered in
+            // and out. ARCore refines the pose in small steps, so a modest
+            // threshold keeps the path glued to the floor at a fraction of
+            // the cost.
+            maybeRebuildRoute()
+
+            // A small cube sitting on the origin itself. The route runs up to
+            // 15m away and can easily start off-screen, so without this the
+            // user gets no confirmation that tracking actually worked -- it
+            // just looks like nothing was drawn.
+            originAnchor?.let { anchor ->
+                // Refresh the position only while tracking, but keep DRAWING
+                // at the last known position when tracking briefly lapses.
+                // Hiding the cube on every momentary dropout is what made it
+                // blink in and out.
+                if (anchor.trackingState == TrackingState.TRACKING) {
+                    val p = anchor.pose
+                    originMarkerPos[0] = p.tx()
+                    originMarkerPos[1] = p.ty()
+                    originMarkerPos[2] = p.tz()
+                    haveOriginMarkerPos = true
+                }
+                if (haveOriginMarkerPos) {
+                    markerRenderer.draw(
+                        viewProjectionMatrix,
+                        originMarkerPos,
+                        0.12f,
+                        elapsed,
+                        false
+                    )
+                }
+            }
 
             pathRenderer.draw(viewProjectionMatrix, elapsed)
             markerRenderer.draw(
@@ -289,11 +354,63 @@ class ArSceneRenderer(
         originAnchor?.detach()
         originAnchor = match.createAnchor(match.centerPose)
         originIsFromImage = true
-        Log.i(TAG, "World origin acquired from reference image '${match.name}'")
+
+        // Work out how the marker is actually mounted instead of trusting a
+        // hard-coded setting. The image's +Y axis points out of its face, so
+        // comparing that to world up tells us the orientation directly:
+        //   face pointing up   -> lying flat on a table/floor
+        //   face pointing out  -> hanging on a wall
+        // Getting this wrong draws the route metres away from where the user
+        // is looking, which reads as "the path is missing".
+        val faceNormalY = match.centerPose.yAxis[1]
+        detectedMounting = if (kotlin.math.abs(faceNormalY) > 0.65f) {
+            ImageMounting.FLAT
+        } else {
+            ImageMounting.VERTICAL
+        }
+
+        // When the marker lies flat, the route starts on the marker's own
+        // plane, so there is no board height to drop from.
+        detectedBoardHeight =
+            if (detectedMounting == ImageMounting.FLAT) 0f else CampusMap.boardHeightMeters
+
+        Log.i(
+            TAG,
+            "World origin acquired from reference image '${match.name}' " +
+                "(mounting=$detectedMounting, faceNormalY=$faceNormalY)"
+        )
 
         report(ArUiState.OriginAcquired)
         rebuildRoute()
+
+        // Plane finding is only needed to acquire an origin. Leaving it on
+        // afterwards keeps ARCore's plane solver running every frame for no
+        // benefit, which is pure heat on a mid-range phone.
+        disablePlaneFinding()
     }
+
+    /**
+     * Turns off plane detection once the origin is fixed.
+     *
+     * Reconfiguring a live session is cheap and does not disturb tracking.
+     */
+    private fun disablePlaneFinding() {
+        val s = session ?: return
+        try {
+            val cfg = s.config
+            if (cfg.planeFindingMode != Config.PlaneFindingMode.DISABLED) {
+                cfg.planeFindingMode = Config.PlaneFindingMode.DISABLED
+                s.configure(cfg)
+                Log.i(TAG, "Plane finding disabled (origin fixed) to save CPU")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not disable plane finding", e)
+        }
+    }
+
+    /** Mounting inferred from the tracked image's own orientation. */
+    private var detectedMounting = ImageMounting.VERTICAL
+    private var detectedBoardHeight = 0f
 
     /**
      * Fallback origin: the floor in front of the user.
@@ -342,6 +459,7 @@ class ArSceneRenderer(
 
         report(ArUiState.OriginAcquired)
         rebuildRoute()
+        disablePlaneFinding()
     }
 
     /**
@@ -352,6 +470,33 @@ class ArSceneRenderer(
      * continually refined by ARCore; using a stale transform makes the path
      * visibly drift away from the floor.
      */
+    /**
+     * Rebuilds the route only when the origin anchor has meaningfully moved.
+     *
+     * ARCore continuously refines an anchor's pose by tiny amounts. Acting on
+     * every one of those refinements is pure waste; acting on none of them
+     * lets the path drift off the floor. Comparing against the last pose we
+     * built from gives us both.
+     */
+    private fun maybeRebuildRoute() {
+        val anchor = originAnchor ?: return
+        if (anchor.trackingState != TrackingState.TRACKING) return
+
+        val p = anchor.pose
+        val dx = p.tx() - lastBuiltOriginPos[0]
+        val dy = p.ty() - lastBuiltOriginPos[1]
+        val dz = p.tz() - lastBuiltOriginPos[2]
+        val movedSq = dx * dx + dy * dy + dz * dz
+
+        // 1cm of drift is far below what is visible at these distances.
+        if (movedSq < ORIGIN_REBUILD_THRESHOLD_SQ) return
+
+        lastBuiltOriginPos[0] = p.tx()
+        lastBuiltOriginPos[1] = p.ty()
+        lastBuiltOriginPos[2] = p.tz()
+        rebuildRoute()
+    }
+
     private fun rebuildRoute() {
         val anchor = originAnchor ?: return
         val destination = activeDestination ?: return
@@ -361,7 +506,9 @@ class ArSceneRenderer(
 
         val local = destination.waypoints.map { wp ->
             if (originIsFromImage) {
-                toImageLocal(wp, CampusMap.mounting, CampusMap.boardHeightMeters)
+                // Use the mounting inferred from the tracked image, not the
+                // static setting -- see tryAcquireImageOrigin().
+                toImageLocal(wp, detectedMounting, detectedBoardHeight)
             } else {
                 // Plane origin: the anchor already sits on the floor and is
                 // yawed to the user's heading, so authored +Y (forwards) maps
@@ -421,13 +568,28 @@ class ArSceneRenderer(
         val far = unproject(invVp, ndcX, ndcY, 1f) ?: return
 
         val ray = Ray(near, (far - near).normalized())
-        val center = Vec3(markerWorldPos[0], markerWorldPos[1], markerWorldPos[2])
 
+        // Test the destination marker first (the primary target)...
+        val destCenter = Vec3(markerWorldPos[0], markerWorldPos[1], markerWorldPos[2])
         // Enlarged pick volume: the marker can be 15m away, and a fingertip
         // is not precise. Covers the label above it too.
-        val pickRadius = MARKER_SIZE_M * 1.6f
+        val destHit = intersectAabb(ray, destCenter, MARKER_SIZE_M * 1.6f)
 
-        if (intersectAabb(ray, center, pickRadius) != null) {
+        // ...then the small cube sitting on the reference image. Without this
+        // the only tappable object is up to 15m away, so a user standing at
+        // the marker taps the cube right in front of them and nothing happens.
+        val originCenter = Vec3(originMarkerPos[0], originMarkerPos[1], originMarkerPos[2])
+        val originHit = if (originAnchor != null) {
+            intersectAabb(ray, originCenter, 0.22f)
+        } else {
+            null
+        }
+
+        // Nearest hit wins, so an origin cube in the foreground is not
+        // shadowed by a distant destination marker behind it.
+        if (destHit != null && (originHit == null || destHit <= originHit)) {
+            report(ArUiState.MarkerTapped)
+        } else if (originHit != null) {
             report(ArUiState.MarkerTapped)
         }
     }
