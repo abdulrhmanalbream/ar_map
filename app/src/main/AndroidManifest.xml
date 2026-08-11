@@ -29,18 +29,17 @@
         android:required="true" />
 
     <!--
-      largeHeap: this is an AR app on a 3.5GB device with little free RAM.
-      Android was killing the process under memory pressure, which showed up
-      as the camera cutting out and returning (the app was restarting with a
-      new PID). A larger heap ceiling reduces GC churn and makes the process
-      less likely to be reclaimed.
+      No largeHeap: measured on a Galaxy A16, the Dalvik heap only ever
+      reached ~10MB, so a larger ceiling bought nothing. Our memory is almost
+      entirely native/graphics (ARCore camera buffers), which largeHeap does
+      not cover. Asking for it only makes the process look bigger to the
+      low-memory killer, which is exactly what we are trying to avoid.
     -->
     <application
         android:allowBackup="false"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:largeHeap="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.SarabVision">
 

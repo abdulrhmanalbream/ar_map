@@ -312,6 +312,12 @@ class ArActivity : ComponentActivity() {
                 try {
                     val filter = CameraConfigFilter(newSession)
                         .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_30))
+                        // Never let ARCore hand us a depth sensor stream: we
+                        // disabled the Depth API, and requesting depth data
+                        // allocates extra per-frame buffers we never read.
+                        .setDepthSensorUsage(
+                            EnumSet.of(CameraConfig.DepthSensorUsage.DO_NOT_USE)
+                        )
                     val configs = newSession.getSupportedCameraConfigs(filter)
 
                     val chosen = configs
