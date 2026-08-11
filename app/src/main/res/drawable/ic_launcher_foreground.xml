@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sarab Vision mark: a perspective path receding to a marker pin.
+  Vector so it scales to every density without shipping bitmaps.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Receding path on the ground -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M38,78 L70,78 L60,58 L48,58 Z" />
+    <path
+        android:fillColor="#29B6F6"
+        android:pathData="M46,54 L62,54 L57,44 L51,44 Z" />
+
+    <!-- POI marker pin at the end of the path -->
+    <path
+        android:fillColor="#FFCA28"
+        android:pathData="M54,20 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path
+        android:fillColor="#FFCA28"
+        android:pathData="M54,40 L47,27 L61,27 Z" />
+</vector>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sarab Vision</string>
+
+    <string name="scan_hint">Move your phone slowly to scan the floor</string>
+    <string name="scan_found">Floor detected — follow the path</string>
+    <string name="tap_hint">Tap the marker for details</string>
+
+    <string name="camera_permission_title">Camera access needed</string>
+    <string name="camera_permission_body">Sarab Vision uses the camera to place the navigation path on the floor in front of you. Nothing leaves your device.</string>
+    <string name="camera_permission_grant">Grant access</string>
+
+    <string name="ar_unsupported_title">AR not supported</string>
+    <string name="ar_unsupported_body">This device does not support ARCore, so the augmented reality path cannot be displayed.</string>
+
+    <string name="close">Close</string>
+</resources>

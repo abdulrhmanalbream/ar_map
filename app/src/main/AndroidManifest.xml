@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Sarab Vision runs fully offline. The INTERNET permission is deliberately
+      NOT declared: the app cannot make a network call even if a future
+      dependency tried to. Offline is enforced by the manifest, not by
+      convention.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+      ARCore's motion tracking samples the gyroscope/accelerometer above
+      200 Hz. Since Android 12 that requires this permission; without it
+      sensor registration is refused and session.resume() throws
+      FatalException("Failed to register sensor to queue 0").
+
+      It is a normal (install-time) permission, so there is no runtime prompt.
+      Verified on a Galaxy A16 (Android 16), where its absence prevented AR
+      from starting at all.
+    -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+    <uses-feature
+        android:name="android.hardware.camera.ar"
+        android:required="true" />
+    <uses-feature
+        android:glEsVersion="0x00020000"
+        android:required="true" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SarabVision">
+
+        <!--
+          "AR Required" tells Google Play to only surface this app on
+          ARCore-capable devices, and lets ARCore prompt for its own install.
+        -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="required" />
+
+        <activity
+            android:name=".ArActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.SarabVision">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

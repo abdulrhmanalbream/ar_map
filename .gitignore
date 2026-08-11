@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+build/
+output/
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Machine-specific SDK location.
+local.properties
