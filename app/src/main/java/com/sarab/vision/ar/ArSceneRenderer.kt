@@ -57,6 +57,12 @@ private const val IMAGE_SEARCH_TIMEOUT_SEC = 12f
  */
 private const val ORIGIN_REBUILD_THRESHOLD_SQ = 0.01f * 0.01f
 
+/** Edge length of the cube shown on the reference image, in metres. */
+private const val ORIGIN_MARKER_SIZE_M = 0.16f
+
+/** How far to lift that cube off the image face, in metres. */
+private const val ORIGIN_MARKER_LIFT_M = 0.10f
+
 
 /**
  * Owns the GL thread and every per-frame AR operation.
@@ -290,6 +296,44 @@ class ArSceneRenderer(
 
         val elapsed = (System.nanoTime() - startNanos) / 1_000_000_000f
 
+        // The cube on the reference image is drawn as soon as an origin
+        // exists, INDEPENDENTLY of whether a route has been built.
+        //
+        // It used to be nested inside the "route ready" branch, so if the
+        // board was recognised before a destination was chosen (or the route
+        // was empty for any reason) nothing appeared at all -- the board was
+        // tracked, but the user had no way to know. This cube is the
+        // confirmation that tracking worked, so it must not depend on the
+        // route.
+        originAnchor?.let { anchor ->
+            // Refresh the position only while tracking, but keep DRAWING at
+            // the last known position when tracking briefly lapses. Hiding it
+            // on every momentary dropout is what made it blink in and out.
+            if (anchor.trackingState == TrackingState.TRACKING) {
+                val p = anchor.pose
+                // Lift the cube clear of the image surface along the image's
+                // own normal (+Y is out of the face). Sitting it exactly on
+                // the centre buried half of it inside the board, which made a
+                // small cube nearly invisible against the artwork.
+                val n = p.yAxis
+                originMarkerPos[0] = p.tx() + n[0] * ORIGIN_MARKER_LIFT_M
+                originMarkerPos[1] = p.ty() + n[1] * ORIGIN_MARKER_LIFT_M
+                originMarkerPos[2] = p.tz() + n[2] * ORIGIN_MARKER_LIFT_M
+                haveOriginMarkerPos = true
+            }
+            if (haveOriginMarkerPos) {
+                markerRenderer.draw(
+                    viewProjectionMatrix,
+                    originMarkerPos,
+                    ORIGIN_MARKER_SIZE_M,
+                    elapsed,
+                    // Highlight it: this is the "tracking works" confirmation,
+                    // so it should read clearly against a busy marker.
+                    true
+                )
+            }
+        }
+
         if (originAnchor != null && worldRoute.size >= 2) {
             // Only rebuild when the anchor has actually MOVED. Rebuilding
             // every frame re-transformed ~40 points, re-built the ribbon and
@@ -300,33 +344,6 @@ class ArSceneRenderer(
             // threshold keeps the path glued to the floor at a fraction of
             // the cost.
             maybeRebuildRoute()
-
-            // A small cube sitting on the origin itself. The route runs up to
-            // 15m away and can easily start off-screen, so without this the
-            // user gets no confirmation that tracking actually worked -- it
-            // just looks like nothing was drawn.
-            originAnchor?.let { anchor ->
-                // Refresh the position only while tracking, but keep DRAWING
-                // at the last known position when tracking briefly lapses.
-                // Hiding the cube on every momentary dropout is what made it
-                // blink in and out.
-                if (anchor.trackingState == TrackingState.TRACKING) {
-                    val p = anchor.pose
-                    originMarkerPos[0] = p.tx()
-                    originMarkerPos[1] = p.ty()
-                    originMarkerPos[2] = p.tz()
-                    haveOriginMarkerPos = true
-                }
-                if (haveOriginMarkerPos) {
-                    markerRenderer.draw(
-                        viewProjectionMatrix,
-                        originMarkerPos,
-                        0.12f,
-                        elapsed,
-                        false
-                    )
-                }
-            }
 
             pathRenderer.draw(viewProjectionMatrix, elapsed)
             markerRenderer.draw(
@@ -486,14 +503,6 @@ class ArSceneRenderer(
     }
 
     /**
-     * Transforms the active destination's waypoints from origin-local space
-     * into world space and uploads the ribbon.
-     *
-     * Recomputed every frame while navigating because the anchor's pose is
-     * continually refined by ARCore; using a stale transform makes the path
-     * visibly drift away from the floor.
-     */
-    /**
      * Rebuilds the route only when the origin anchor has meaningfully moved.
      *
      * ARCore continuously refines an anchor's pose by tiny amounts. Acting on
@@ -576,7 +585,9 @@ class ArSceneRenderer(
      * Converts a screen tap into a world ray and tests it against the marker.
      */
     private fun handleTap(screenX: Float, screenY: Float) {
-        if (worldRoute.isEmpty()) return
+        // Do NOT require a route here: the origin cube is tappable as soon as
+        // the board is tracked, before any destination has been chosen.
+        if (worldRoute.isEmpty() && !haveOriginMarkerPos) return
 
         val invVp = FloatArray(16)
         if (!Matrix.invertM(invVp, 0, viewProjectionMatrix, 0)) {
@@ -592,18 +603,26 @@ class ArSceneRenderer(
 
         val ray = Ray(near, (far - near).normalized())
 
-        // Test the destination marker first (the primary target)...
-        val destCenter = Vec3(markerWorldPos[0], markerWorldPos[1], markerWorldPos[2])
-        // Enlarged pick volume: the marker can be 15m away, and a fingertip
-        // is not precise. Covers the label above it too.
-        val destHit = intersectAabb(ray, destCenter, MARKER_SIZE_M * 1.6f)
+        // Test the destination marker first (the primary target). Guarded on
+        // the route existing: without it markerWorldPos is still (0,0,0) and
+        // would produce phantom hits at the world origin.
+        val destHit = if (worldRoute.size >= 2) {
+            val destCenter = Vec3(markerWorldPos[0], markerWorldPos[1], markerWorldPos[2])
+            // Enlarged pick volume: the marker can be 15m away, and a
+            // fingertip is not precise. Covers the label above it too.
+            intersectAabb(ray, destCenter, MARKER_SIZE_M * 1.6f)
+        } else {
+            null
+        }
 
         // ...then the small cube sitting on the reference image. Without this
         // the only tappable object is up to 15m away, so a user standing at
         // the marker taps the cube right in front of them and nothing happens.
         val originCenter = Vec3(originMarkerPos[0], originMarkerPos[1], originMarkerPos[2])
-        val originHit = if (originAnchor != null) {
-            intersectAabb(ray, originCenter, 0.22f)
+        val originHit = if (originAnchor != null && haveOriginMarkerPos) {
+            // Generous pick volume relative to the cube's size, since it is
+            // small on screen and fingers are not precise.
+            intersectAabb(ray, originCenter, ORIGIN_MARKER_SIZE_M * 1.8f)
         } else {
             null
         }
