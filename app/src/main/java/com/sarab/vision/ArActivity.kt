@@ -86,6 +86,9 @@ class ArActivity : ComponentActivity() {
     /** True once we stopped waiting for the reference image. */
     private var imageTimedOut by mutableStateOf(false)
 
+    /** Board anchored, but ARCore still needs motion to converge. */
+    private var boardFoundAwaitingTracking by mutableStateOf(false)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -216,6 +219,9 @@ class ArActivity : ComponentActivity() {
     /** Context-appropriate guidance while the origin is being acquired. */
     private fun hintForState(state: ScreenState): String = when {
         selected == null -> getString(R.string.hint_choose_destination)
+        // Board is anchored; ARCore just needs a little parallax. Telling the
+        // user to keep pointing at a board they already found is useless.
+        boardFoundAwaitingTracking -> getString(R.string.hint_board_found)
         imageDbResult is ImageDbResult.Ready && !imageTimedOut ->
             getString(R.string.hint_find_board)
         // Image never matched: tell the truth and give the floor instruction.
@@ -239,12 +245,21 @@ class ArActivity : ComponentActivity() {
                     // The reference image was never found. Stop telling the
                     // user to look for a board that will not be recognised.
                     imageTimedOut = true
+                    boardFoundAwaitingTracking = false
+                    uiState = ScreenState.Searching
+                }
+
+                ArUiState.OriginFoundAwaitingTracking -> {
+                    boardFoundAwaitingTracking = true
                     uiState = ScreenState.Searching
                 }
 
                 ArUiState.OriginAcquired -> Unit
 
-                ArUiState.Navigating -> uiState = ScreenState.Navigating
+                ArUiState.Navigating -> {
+                    boardFoundAwaitingTracking = false
+                    uiState = ScreenState.Navigating
+                }
 
                 is ArUiState.DistanceUpdate -> remainingMeters = state.remainingMeters
 

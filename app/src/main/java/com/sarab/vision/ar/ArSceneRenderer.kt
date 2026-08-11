@@ -323,12 +323,27 @@ class ArSceneRenderer(
         }
 
         if (!cameraFullyTracking) {
-            report(if (originAnchor == null) currentSearchState() else ArUiState.Tracking)
-            // IMPORTANT: do not return yet. The camera pose is still usable
-            // for rendering, and returning here meant that once the image WAS
-            // acquired the cube still never drew, because we bailed out before
-            // computing the view matrices. That is the "it detects but nothing
-            // appears" case.
+            // Distinguish "board found, but ARCore still needs a little
+            // motion" from "still looking". The user is otherwise left
+            // staring at a hint telling them to point at a board they are
+            // already pointing at.
+            report(
+                if (originAnchor != null) ArUiState.OriginFoundAwaitingTracking
+                else currentSearchState()
+            )
+
+            // Draw nothing while the camera pose is not trustworthy.
+            //
+            // When tracking is PAUSED, ARCore's view matrix does not follow
+            // the device properly, so world-anchored objects stop being
+            // world-anchored: the cube smears across the screen and clings to
+            // the edge as you turn, instead of staying put on the real board.
+            // Showing a wrong position is worse than showing nothing -- it
+            // destroys the illusion that the object is really there.
+            //
+            // The camera background is already drawn above, so the user still
+            // sees a live feed while ARCore acquires tracking.
+            return
         }
 
         camera.getViewMatrix(viewMatrix, 0)
@@ -771,6 +786,12 @@ sealed interface ArUiState {
 
     /** Gave up on the reference image; now using the floor instead. */
     data object ImageSearchTimedOut : ArUiState
+
+    /**
+     * The board is anchored but ARCore has not converged on a camera pose
+     * yet, so nothing is drawn. The user needs to move slightly.
+     */
+    data object OriginFoundAwaitingTracking : ArUiState
 
     /** Camera tracking is degraded (fast motion, low light). */
     data object Tracking : ArUiState

@@ -9,6 +9,7 @@
     <string name="hint_choose_destination">Choose a destination to begin</string>
     <string name="hint_find_board">Point your camera at the campus map board</string>
     <string name="hint_image_not_found">Map board not recognised — point at the floor instead</string>
+    <string name="hint_board_found">Board found — move the phone gently side to side</string>
 
     <string name="camera_permission_title">Camera access needed</string>
     <string name="camera_permission_body">Sarab Vision uses the camera to place the navigation path on the floor in front of you. Nothing leaves your device.</string>
