@@ -72,6 +72,9 @@ class ArActivity : ComponentActivity() {
     /** Which origin mode the session ended up in; drives the hint text. */
     private var imageDbResult by mutableStateOf<ImageDbResult>(ImageDbResult.NoImageProvided)
 
+    /** True once we stopped waiting for the reference image. */
+    private var imageTimedOut by mutableStateOf(false)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -193,7 +196,11 @@ class ArActivity : ComponentActivity() {
     /** Context-appropriate guidance while the origin is being acquired. */
     private fun hintForState(state: ScreenState): String = when {
         selected == null -> getString(R.string.hint_choose_destination)
-        imageDbResult is ImageDbResult.Ready -> getString(R.string.hint_find_board)
+        imageDbResult is ImageDbResult.Ready && !imageTimedOut ->
+            getString(R.string.hint_find_board)
+        // Image never matched: tell the truth and give the floor instruction.
+        imageDbResult is ImageDbResult.Ready && imageTimedOut ->
+            getString(R.string.hint_image_not_found)
         else -> getString(R.string.scan_hint)
     }
 
@@ -207,6 +214,13 @@ class ArActivity : ComponentActivity() {
                 ArUiState.Scanning,
                 ArUiState.Tracking,
                 ArUiState.AwaitingDestination -> uiState = ScreenState.Searching
+
+                ArUiState.ImageSearchTimedOut -> {
+                    // The reference image was never found. Stop telling the
+                    // user to look for a board that will not be recognised.
+                    imageTimedOut = true
+                    uiState = ScreenState.Searching
+                }
 
                 ArUiState.OriginAcquired -> Unit
 

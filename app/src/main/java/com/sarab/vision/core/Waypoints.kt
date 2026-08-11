@@ -65,6 +65,10 @@ object CampusMap {
     /**
      * Set this to match how you physically mount the reference image.
      * See the coordinate-system note above and V2_SETUP.md.
+     *
+     * Defaults to VERTICAL because a real campus map board hangs on a wall.
+     * If you are testing with a marker lying flat on a desk or the floor,
+     * switch this to [ImageMounting.FLAT] and set [boardHeightMeters] to 0.
      */
     var mounting: ImageMounting = ImageMounting.VERTICAL
 

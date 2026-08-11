@@ -53,18 +53,49 @@ const val ORIGIN_IMAGE_WIDTH_METERS = 0.30f   // 30 cm printed width
 uses it to resolve scale immediately. If it is wrong, the entire route is
 scaled wrong — a 15 m path could come out 7 m or 30 m long.
 
-### What makes a *good* reference image
+### ⚠️ What makes a *good* reference image — read this, it is the #1 failure
 
-ARCore tracks images by visual feature points, so:
+The reference image must be a **flat, straight-on scan of a flat surface** —
+essentially the artwork itself, not a photo of an object.
 
-- ✅ **High detail and contrast** — text, logos, photos, complex artwork
-- ✅ **Matte paper**, flat against the wall, evenly lit
-- ✅ **At least 20 cm wide**, ideally 30 cm+
+**The most common mistake** (and the one that happened here): photographing a
+real 3D object at an angle. A snapshot of a product box on a desk **will never
+be recognised**, because:
+
+- 📐 **It was shot at an angle** — the artwork is stored warped by perspective,
+  so ARCore is hunting for a distorted shape that never appears flat.
+- 🖼️ **The background is baked in** — desk, wall and chairs became part of the
+  "reference image", and they can never be matched.
+- 📦 **A box is a 3D object, not a plane** — augmented images must be planar.
+
+**Do this instead:**
+
+- ✅ Take the **artwork file itself** (a poster PDF/PNG, the map graphic), or
+  scan/photograph a **flat sheet perfectly straight-on**, filling the frame,
+  with no background around it.
+- ✅ **High detail and contrast** — text, logos, photos, complex artwork.
+- ✅ **Matte paper**, flat against the wall, evenly lit.
+- ✅ **At least 20 cm wide** when printed, ideally 30 cm+.
 - ❌ **Avoid a plain QR code.** Despite the filename being allowed, a bare QR
-  code is mostly flat black-and-white blocks with repetitive structure and
-  tracks *poorly*. A real map board or a poster with photos works far better.
+  code is mostly repetitive black-and-white blocks and tracks *poorly*.
 - ❌ Avoid glossy/laminated prints (glare), repeating patterns, and anything
   behind glass.
+
+Rule of thumb: if the file looks like a **photo of a scene**, it is wrong. It
+should look like a **flat picture with nothing around it**.
+
+### If the image is never recognised
+
+The app no longer gets stuck. After **12 seconds** of searching it logs:
+
+```
+SarabArRenderer: Reference image not found after 12.0s; falling back to plane-based origin.
+SarabArRenderer: World origin acquired from floor plane (no reference image)
+```
+
+...switches the hint to "Map board not recognised — point at the floor
+instead", and draws the route on the floor instead. So a bad reference image
+degrades to V1 behaviour rather than leaving a blank camera feed.
 
 You can check quality with Google's `arcoreimg` tool if you want a score
 out of 100 (aim for 75+), but it is not required.

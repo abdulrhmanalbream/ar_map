@@ -40,6 +40,15 @@ private const val MARKER_HOVER_M = 0.4f
 private const val LABEL_HOVER_M = 0.95f
 
 /**
+ * How long to hunt for the reference image before giving up and using the
+ * floor instead.
+ *
+ * A bad or unprintable reference image must never leave the user staring at
+ * a camera feed with nothing on it.
+ */
+private const val IMAGE_SEARCH_TIMEOUT_SEC = 12f
+
+/**
  * Owns the GL thread and every per-frame AR operation.
  *
  * V2 changes: the world origin comes from a tracked augmented image (the map
@@ -68,6 +77,12 @@ class ArSceneRenderer(
     /** Anchor defining the world origin (image centre, or a floor point). */
     private var originAnchor: Anchor? = null
     private var originIsFromImage = false
+
+    /** When the hunt for the reference image began. */
+    private var imageSearchStartNanos = 0L
+
+    /** Set once we give up on the image and switch to the floor. */
+    private var imageSearchTimedOut = false
 
     /** Set from the UI thread; consumed on the GL thread. */
     private val pendingDestination = AtomicReference<Destination?>(null)
@@ -118,6 +133,9 @@ class ArSceneRenderer(
         originAnchor = null
         originIsFromImage = false
         worldRoute = emptyList()
+        // Give the reference image a fresh chance after an explicit reset.
+        imageSearchStartNanos = 0L
+        imageSearchTimedOut = false
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -173,9 +191,30 @@ class ArSceneRenderer(
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
         // Acquire the origin, preferring the reference image.
+        //
+        // Crucially, waiting for an image is NOT allowed to block forever: if
+        // the image is never found (wrong image, bad lighting, user has not
+        // pointed at it) we fall back to the floor plane so the route still
+        // appears. Without this timeout a poor reference image leaves the app
+        // searching indefinitely and nothing is ever drawn.
         if (originAnchor == null) {
-            if (usingImageOrigin) {
+            if (imageSearchStartNanos == 0L) {
+                imageSearchStartNanos = System.nanoTime()
+            }
+
+            if (usingImageOrigin && !imageSearchTimedOut) {
                 tryAcquireImageOrigin(frame)
+
+                val waited = (System.nanoTime() - imageSearchStartNanos) / 1_000_000_000f
+                if (originAnchor == null && waited > IMAGE_SEARCH_TIMEOUT_SEC) {
+                    Log.w(
+                        TAG,
+                        "Reference image not found after ${IMAGE_SEARCH_TIMEOUT_SEC}s; " +
+                            "falling back to plane-based origin."
+                    )
+                    imageSearchTimedOut = true
+                    report(ArUiState.ImageSearchTimedOut)
+                }
             } else {
                 tryAcquirePlaneOrigin(session, frame)
             }
@@ -226,7 +265,11 @@ class ArSceneRenderer(
     }
 
     private fun currentSearchState(): ArUiState =
-        if (usingImageOrigin) ArUiState.SearchingForImage else ArUiState.Scanning
+        if (usingImageOrigin && !imageSearchTimedOut) {
+            ArUiState.SearchingForImage
+        } else {
+            ArUiState.Scanning
+        }
 
     /**
      * Looks for the reference image and anchors the world origin to it.
@@ -416,6 +459,9 @@ sealed interface ArUiState {
 
     /** No reference image in use; looking for a floor plane. */
     data object Scanning : ArUiState
+
+    /** Gave up on the reference image; now using the floor instead. */
+    data object ImageSearchTimedOut : ArUiState
 
     /** Camera tracking is degraded (fast motion, low light). */
     data object Tracking : ArUiState
