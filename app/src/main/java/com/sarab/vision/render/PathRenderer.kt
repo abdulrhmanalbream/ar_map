@@ -31,8 +31,10 @@ class PathRenderer {
     private var colorUniform = 0
     private var repeatsUniform = 0
 
-    private var vertexBuffer = floatBuffer(0)
-    private var progressBuffer = floatBuffer(0)
+    /** GPU-resident vertex buffers; 0 until first upload. */
+    private val vertexVbo = intArrayOf(0)
+    private val progressVbo = intArrayOf(0)
+    private var buffersReady = false
     private var vertexCount = 0
 
     /** Pulse repeats across the ribbon, derived from the route length. */
@@ -75,6 +77,12 @@ class PathRenderer {
         timeUniform = GLES20.glGetUniformLocation(program, "u_Time")
         colorUniform = GLES20.glGetUniformLocation(program, "u_Color")
         repeatsUniform = GLES20.glGetUniformLocation(program, "u_Repeats")
+
+        // A new GL context invalidates old buffer names, so forget them and
+        // let the next updatePath() allocate fresh ones.
+        vertexVbo[0] = 0
+        progressVbo[0] = 0
+        buffersReady = false
     }
 
     /**
@@ -149,16 +157,36 @@ class PathRenderer {
             progress[i * 2 + 1] = t
         }
 
-        vertexBuffer = floatBufferOf(verts)
-        progressBuffer = floatBufferOf(progress)
         vertexCount = points.size * 2
+
+        // Upload once into GPU-resident buffers. Previously the ribbon was
+        // streamed from client memory on EVERY draw call, which meant pushing
+        // ~80 vertices across the JNI/driver boundary 30-60 times a second for
+        // geometry that almost never changes. GL_STATIC_DRAW tells the driver
+        // it can keep this in fast memory.
+        uploadBuffer(vertexVbo, floatBufferOf(verts), verts.size)
+        uploadBuffer(progressVbo, floatBufferOf(progress), progress.size)
+        buffersReady = true
+    }
+
+    /** Creates the VBO on first use, then uploads [data] into it. */
+    private fun uploadBuffer(vboHolder: IntArray, data: java.nio.FloatBuffer, count: Int) {
+        if (vboHolder[0] == 0) {
+            GLES20.glGenBuffers(1, vboHolder, 0)
+        }
+        data.position(0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboHolder[0])
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            count * Float.SIZE_BYTES,
+            data,
+            GLES20.GL_STATIC_DRAW
+        )
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 
     fun draw(mvpMatrix: FloatArray, timeSeconds: Float) {
-        if (vertexCount == 0) return
-
-        vertexBuffer.position(0)
-        progressBuffer.position(0)
+        if (vertexCount == 0 || !buffersReady) return
 
         GLES20.glUseProgram(program)
         GLES20.glEnable(GLES20.GL_BLEND)
@@ -172,19 +200,19 @@ class PathRenderer {
         GLES20.glUniform1f(repeatsUniform, pulseRepeats)
         GLES20.glUniform4f(colorUniform, 0.31f, 0.76f, 0.97f, 0.9f)
 
-        GLES20.glVertexAttribPointer(
-            positionAttrib, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer
-        )
-        GLES20.glVertexAttribPointer(
-            progressAttrib, 1, GLES20.GL_FLOAT, false, 0, progressBuffer
-        )
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexVbo[0])
+        GLES20.glVertexAttribPointer(positionAttrib, 3, GLES20.GL_FLOAT, false, 0, 0)
         GLES20.glEnableVertexAttribArray(positionAttrib)
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, progressVbo[0])
+        GLES20.glVertexAttribPointer(progressAttrib, 1, GLES20.GL_FLOAT, false, 0, 0)
         GLES20.glEnableVertexAttribArray(progressAttrib)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, vertexCount)
 
         GLES20.glDisableVertexAttribArray(positionAttrib)
         GLES20.glDisableVertexAttribArray(progressAttrib)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glDepthMask(true)
         GLES20.glDisable(GLES20.GL_BLEND)
         checkGlError("path draw")

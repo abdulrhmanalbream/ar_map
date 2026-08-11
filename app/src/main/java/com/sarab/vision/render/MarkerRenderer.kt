@@ -20,8 +20,8 @@ class MarkerRenderer {
     private var mvpUniform = 0
     private var tintUniform = 0
 
-    private var vertexBuffer = floatBuffer(0)
-    private var shadeBuffer = floatBuffer(0)
+    private val vertexVbo = intArrayOf(0)
+    private val shadeVbo = intArrayOf(0)
     private var vertexCount = 0
 
     private val modelMatrix = FloatArray(16)
@@ -104,8 +104,29 @@ class MarkerRenderer {
             repeat(6) { shades[si++] = shade }
         }
 
-        vertexBuffer = floatBufferOf(verts)
-        shadeBuffer = floatBufferOf(shades)
+        // Cube geometry never changes, so it belongs on the GPU permanently.
+        // Streaming 36 vertices from client memory on every draw was pure
+        // overhead -- and the cube is drawn twice per frame (destination
+        // marker + origin marker), so it cost double.
+        GLES20.glGenBuffers(1, vertexVbo, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexVbo[0])
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            verts.size * Float.SIZE_BYTES,
+            floatBufferOf(verts),
+            GLES20.GL_STATIC_DRAW
+        )
+
+        GLES20.glGenBuffers(1, shadeVbo, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, shadeVbo[0])
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            shades.size * Float.SIZE_BYTES,
+            floatBufferOf(shades),
+            GLES20.GL_STATIC_DRAW
+        )
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+
         vertexCount = 36
     }
 
@@ -133,9 +154,6 @@ class MarkerRenderer {
         Matrix.scaleM(modelMatrix, 0, sizeMeters, sizeMeters, sizeMeters)
         Matrix.multiplyMM(mvpMatrix, 0, viewProjection, 0, modelMatrix, 0)
 
-        vertexBuffer.position(0)
-        shadeBuffer.position(0)
-
         GLES20.glUseProgram(program)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glUniformMatrix4fv(mvpUniform, 1, false, mvpMatrix, 0)
@@ -146,19 +164,19 @@ class MarkerRenderer {
             GLES20.glUniform4f(tintUniform, 1.0f, 0.72f, 0.16f, 1f)
         }
 
-        GLES20.glVertexAttribPointer(
-            positionAttrib, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer
-        )
-        GLES20.glVertexAttribPointer(
-            shadeAttrib, 1, GLES20.GL_FLOAT, false, 0, shadeBuffer
-        )
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexVbo[0])
+        GLES20.glVertexAttribPointer(positionAttrib, 3, GLES20.GL_FLOAT, false, 0, 0)
         GLES20.glEnableVertexAttribArray(positionAttrib)
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, shadeVbo[0])
+        GLES20.glVertexAttribPointer(shadeAttrib, 1, GLES20.GL_FLOAT, false, 0, 0)
         GLES20.glEnableVertexAttribArray(shadeAttrib)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
 
         GLES20.glDisableVertexAttribArray(positionAttrib)
         GLES20.glDisableVertexAttribArray(shadeAttrib)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         checkGlError("marker draw")
     }
 }

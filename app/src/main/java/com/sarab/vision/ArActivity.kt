@@ -48,6 +48,14 @@ private const val MAX_RESUME_RETRIES = 2
 private const val RESUME_RETRY_DELAY_MS = 600L
 
 /**
+ * Never select a camera config whose CPU image is shorter than this.
+ *
+ * 640x480 measurably reduced CPU but made the preview look bad and choppy on
+ * a Galaxy A16 -- a trade that is not worth making in a camera-first app.
+ */
+private const val MIN_CPU_IMAGE_HEIGHT = 720
+
+/**
  * The single Activity: AR camera, image-anchored campus routes, and the
  * destination picker.
  *
@@ -95,9 +103,20 @@ class ArActivity : ComponentActivity() {
         renderer = ArSceneRenderer(onStateChanged = ::handleArState)
 
         surfaceView = GLSurfaceView(this).apply {
-            preserveEGLContextOnPause = true
+            // Do NOT preserve the EGL context while paused.
+            //
+            // This phone has 3.5GB RAM with ~750MB free, and Android was
+            // killing our process under memory pressure -- which is what made
+            // the camera appear to "cut out and come back": the app was
+            // actually being killed and restarted (a new PID each time).
+            // Holding ~44MB of EGL resources while backgrounded made us a
+            // prime kill target. Our renderers rebuild cheaply in
+            // onSurfaceCreated, so releasing is the better trade.
+            preserveEGLContextOnPause = false
             setEGLContextClientVersion(2)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            // No alpha channel: the AR feed is fully opaque, and an RGBA
+            // surface costs extra bandwidth and memory for nothing.
+            setEGLConfigChooser(8, 8, 8, 0, 16, 0)
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
             setWillNotDraw(false)
@@ -278,35 +297,49 @@ class ArActivity : ComponentActivity() {
 
                 val newSession = Session(this)
 
-                // Pick the cheapest camera configuration available.
+                // Choose a camera configuration that balances CPU against how
+                // the preview actually LOOKS.
                 //
-                // ARCore defaults to a high-resolution CPU image and a 30/60fps
-                // adaptive stream. On a mid-range phone that pegs ARCore's own
-                // vision threads (drishti / sensor event loop), which was
-                // measured at ~200% CPU here: the device got hot, the UI
-                // janked, and thermal throttling made tracking drop in and out.
+                // Note on what `imageSize` is: it is the CPU image ARCore
+                // analyses, NOT the GPU texture drawn on screen. But on many
+                // devices (this Galaxy A16 included) picking the smallest
+                // config also drops the preview stream quality, and 640x480
+                // looked visibly bad and choppy.
                 //
-                // We only need to track one printed image and a floor plane,
-                // so the lowest CPU image size and a fixed 30fps are ample and
-                // cut the load dramatically.
+                // So: cap the CPU image at 1280x720 for tracking cost, but
+                // never take the very smallest option. 720p tracks reliably
+                // and keeps the feed sharp.
                 try {
                     val filter = CameraConfigFilter(newSession)
                         .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_30))
                     val configs = newSession.getSupportedCameraConfigs(filter)
-                    val cheapest = configs.minByOrNull {
-                        it.imageSize.width.toLong() * it.imageSize.height.toLong()
-                    }
-                    if (cheapest != null) {
-                        newSession.cameraConfig = cheapest
+
+                    val chosen = configs
+                        .filter { it.imageSize.height >= MIN_CPU_IMAGE_HEIGHT }
+                        .minByOrNull {
+                            it.imageSize.width.toLong() * it.imageSize.height.toLong()
+                        }
+                    // Fall back to the largest available if every option is
+                    // below our floor, rather than silently taking the worst.
+                        ?: configs.maxByOrNull {
+                            it.imageSize.width.toLong() * it.imageSize.height.toLong()
+                        }
+
+                    if (chosen != null) {
+                        newSession.cameraConfig = chosen
                         Log.i(
                             TAG,
-                            "Camera config: ${cheapest.imageSize.width}x" +
-                                "${cheapest.imageSize.height} (lowest of ${configs.size})"
+                            "Camera config: ${chosen.imageSize.width}x" +
+                                "${chosen.imageSize.height} " +
+                                "(of ${configs.size}: " +
+                                configs.joinToString {
+                                    "${it.imageSize.width}x${it.imageSize.height}"
+                                } + ")"
                         )
                     }
                 } catch (e: Exception) {
                     // Not fatal -- fall back to ARCore's default config.
-                    Log.w(TAG, "Could not select a low-cost camera config", e)
+                    Log.w(TAG, "Could not select a camera config", e)
                 }
 
                 // Load the printed reference image, if one was supplied.
@@ -391,6 +424,28 @@ class ArActivity : ComponentActivity() {
         if (session != null) {
             surfaceView.onPause()
             session?.pause()
+        }
+    }
+
+    /**
+     * Release what we can when the system is short on memory.
+     *
+     * This device runs with very little headroom, and being killed is what
+     * produced the "camera cuts out and comes back" symptom -- the process
+     * was restarting. Responding to trim requests makes us a less attractive
+     * kill target.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_UI_HIDDEN) {
+            // We are no longer visible: the AR session's buffers are dead
+            // weight until the user comes back.
+            Log.i(TAG, "onTrimMemory($level) - releasing AR session")
+            try {
+                session?.pause()
+            } catch (e: Exception) {
+                Log.w(TAG, "Pause during trim failed", e)
+            }
         }
     }
 

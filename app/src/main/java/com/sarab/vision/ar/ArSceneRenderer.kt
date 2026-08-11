@@ -57,6 +57,7 @@ private const val IMAGE_SEARCH_TIMEOUT_SEC = 12f
  */
 private const val ORIGIN_REBUILD_THRESHOLD_SQ = 0.01f * 0.01f
 
+
 /**
  * Owns the GL thread and every per-frame AR operation.
  *
@@ -114,6 +115,9 @@ class ArSceneRenderer(
 
     /** True once the origin cube has a valid position to fall back on. */
     private var haveOriginMarkerPos = false
+
+    /** Whether ARCore already knows our camera texture name. */
+    private var cameraTextureBound = false
 
     private val viewMatrix = FloatArray(16)
     private val projectionMatrix = FloatArray(16)
@@ -185,7 +189,11 @@ class ArSceneRenderer(
         }
 
         startNanos = System.nanoTime()
+        // The GL context (and therefore the texture name) is new here, so the
+        // binding must be re-established or the camera feed renders black.
+        cameraTextureBound = false
         session?.setCameraTextureName(cameraRenderer.textureId)
+        cameraTextureBound = true
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -196,10 +204,25 @@ class ArSceneRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        // NO frame throttling here.
+        //
+        // An earlier version returned early to cap the frame rate. That was a
+        // mistake: returning from onDrawFrame without drawing leaves the
+        // surface with stale/undefined contents, so the preview visibly
+        // stuttered and the effective frame rate collapsed. ARCore's
+        // session.update() already paces us to the camera stream, which is
+        // the correct and only throttle needed.
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
         val session = this.session ?: return
-        session.setCameraTextureName(cameraRenderer.textureId)
+
+        // setCameraTextureName only needs to be called when the texture
+        // actually changes; ARCore keeps it across frames. Calling it every
+        // frame is a needless JNI round-trip.
+        if (!cameraTextureBound) {
+            session.setCameraTextureName(cameraRenderer.textureId)
+            cameraTextureBound = true
+        }
 
         val frame = try {
             session.update()
