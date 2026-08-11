@@ -122,8 +122,6 @@ class ArSceneRenderer(
     /** True once the origin cube has a valid position to fall back on. */
     private var haveOriginMarkerPos = false
 
-    /** Whether ARCore already knows our camera texture name. */
-    private var cameraTextureBound = false
 
     private val viewMatrix = FloatArray(16)
     private val projectionMatrix = FloatArray(16)
@@ -195,11 +193,7 @@ class ArSceneRenderer(
         }
 
         startNanos = System.nanoTime()
-        // The GL context (and therefore the texture name) is new here, so the
-        // binding must be re-established or the camera feed renders black.
-        cameraTextureBound = false
         session?.setCameraTextureName(cameraRenderer.textureId)
-        cameraTextureBound = true
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -222,13 +216,13 @@ class ArSceneRenderer(
 
         val session = this.session ?: return
 
-        // setCameraTextureName only needs to be called when the texture
-        // actually changes; ARCore keeps it across frames. Calling it every
-        // frame is a needless JNI round-trip.
-        if (!cameraTextureBound) {
-            session.setCameraTextureName(cameraRenderer.textureId)
-            cameraTextureBound = true
-        }
+        // Bind the camera texture every frame.
+        //
+        // An earlier version cached this to save a JNI call. That is unsafe:
+        // ARCore forgets the binding across a session pause/resume, and the
+        // cached flag then kept us from re-binding, leaving a frozen feed.
+        // The call is cheap; correctness wins.
+        session.setCameraTextureName(cameraRenderer.textureId)
 
         val frame = try {
             session.update()

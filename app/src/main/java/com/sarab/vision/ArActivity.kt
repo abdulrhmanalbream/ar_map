@@ -103,16 +103,14 @@ class ArActivity : ComponentActivity() {
         renderer = ArSceneRenderer(onStateChanged = ::handleArState)
 
         surfaceView = GLSurfaceView(this).apply {
-            // Do NOT preserve the EGL context while paused.
+            // Keep the EGL context across pauses.
             //
-            // This phone has 3.5GB RAM with ~750MB free, and Android was
-            // killing our process under memory pressure -- which is what made
-            // the camera appear to "cut out and come back": the app was
-            // actually being killed and restarted (a new PID each time).
-            // Holding ~44MB of EGL resources while backgrounded made us a
-            // prime kill target. Our renderers rebuild cheaply in
-            // onSurfaceCreated, so releasing is the better trade.
-            preserveEGLContextOnPause = false
+            // Dropping it saved memory while backgrounded, but it forced a
+            // full shader/texture/VBO rebuild on every single resume, which
+            // made returning to the app feel slow and stuttery. The real
+            // memory win came from refusing depth camera configs, so we no
+            // longer need to pay this cost.
+            preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
             // No alpha channel: the AR feed is fully opaque, and an RGBA
             // surface costs extra bandwidth and memory for nothing.
@@ -433,27 +431,17 @@ class ArActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Release what we can when the system is short on memory.
-     *
-     * This device runs with very little headroom, and being killed is what
-     * produced the "camera cuts out and comes back" symptom -- the process
-     * was restarting. Responding to trim requests makes us a less attractive
-     * kill target.
-     */
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        if (level >= TRIM_MEMORY_UI_HIDDEN) {
-            // We are no longer visible: the AR session's buffers are dead
-            // weight until the user comes back.
-            Log.i(TAG, "onTrimMemory($level) - releasing AR session")
-            try {
-                session?.pause()
-            } catch (e: Exception) {
-                Log.w(TAG, "Pause during trim failed", e)
-            }
-        }
-    }
+    // NOTE: there is deliberately no onTrimMemory() override here.
+    //
+    // An earlier version paused the ARCore session on TRIM_MEMORY_UI_HIDDEN
+    // to look less attractive to the low-memory killer. That was a bad fix:
+    // nothing resumed the session afterwards, so the camera went dead and the
+    // app appeared frozen -- "I point at the board and nothing happens".
+    //
+    // onPause()/onResume() already own the session lifecycle correctly, and
+    // TRIM_MEMORY_UI_HIDDEN fires in situations where onResume will not run
+    // again to undo it. Memory is managed by the camera-config and EGL
+    // changes instead, which do not fight the lifecycle.
 
     override fun onDestroy() {
         session?.close()
