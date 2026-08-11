@@ -48,7 +48,7 @@ private const val LABEL_HOVER_M = 0.95f
  * A bad or unprintable reference image must never leave the user staring at
  * a camera feed with nothing on it.
  */
-private const val IMAGE_SEARCH_TIMEOUT_SEC = 12f
+private const val IMAGE_SEARCH_TIMEOUT_SEC = 6f
 
 /**
  * Squared distance (m^2) the origin anchor must move before the route is
@@ -305,10 +305,8 @@ class ArSceneRenderer(
         // tracked, but the user had no way to know. This cube is the
         // confirmation that tracking worked, so it must not depend on the
         // route.
+        // Refresh the cached position while the anchor is tracking...
         originAnchor?.let { anchor ->
-            // Refresh the position only while tracking, but keep DRAWING at
-            // the last known position when tracking briefly lapses. Hiding it
-            // on every momentary dropout is what made it blink in and out.
             if (anchor.trackingState == TrackingState.TRACKING) {
                 val p = anchor.pose
                 // Lift the cube clear of the image surface along the image's
@@ -321,17 +319,22 @@ class ArSceneRenderer(
                 originMarkerPos[2] = p.tz() + n[2] * ORIGIN_MARKER_LIFT_M
                 haveOriginMarkerPos = true
             }
-            if (haveOriginMarkerPos) {
-                markerRenderer.draw(
-                    viewProjectionMatrix,
-                    originMarkerPos,
-                    ORIGIN_MARKER_SIZE_M,
-                    elapsed,
-                    // Highlight it: this is the "tracking works" confirmation,
-                    // so it should read clearly against a busy marker.
-                    true
-                )
-            }
+        }
+
+        // ...but draw from the CACHE, outside the anchor block. Drawing inside
+        // `originAnchor?.let` meant the cube vanished the instant the anchor
+        // went null or stopped tracking, which is precisely the blink the
+        // cached position was meant to prevent.
+        if (haveOriginMarkerPos) {
+            markerRenderer.draw(
+                viewProjectionMatrix,
+                originMarkerPos,
+                ORIGIN_MARKER_SIZE_M,
+                elapsed,
+                // Highlight it: this is the "tracking works" confirmation,
+                // so it should read clearly against a busy marker.
+                true
+            )
         }
 
         if (originAnchor != null && worldRoute.size >= 2) {
@@ -384,11 +387,29 @@ class ArSceneRenderer(
      * wrong place entirely.
      */
     private fun tryAcquireImageOrigin(frame: Frame) {
-        val images = frame.getUpdatedTrackables(AugmentedImage::class.java)
-        val match = images.firstOrNull {
-            it.name == ORIGIN_IMAGE_NAME &&
-                it.trackingState == TrackingState.TRACKING &&
-                it.trackingMethod == AugmentedImage.TrackingMethod.FULL_TRACKING
+        val session = this.session ?: return
+
+        // Query ALL augmented images, not just getUpdatedTrackables().
+        //
+        // getUpdatedTrackables() only returns images that changed on THIS
+        // frame. Once ARCore locks onto a stationary board it stops reporting
+        // it as updated, so polling only the updated set meant we could miss
+        // the image entirely and sit there waiting -- which is why detection
+        // felt slow and unreliable.
+        val images = session.getAllTrackables(AugmentedImage::class.java)
+
+        val candidates = images.filter {
+            it.name == ORIGIN_IMAGE_NAME && it.trackingState == TrackingState.TRACKING
+        }
+
+        // Prefer a fully-tracked image, but accept LAST_KNOWN_POSE as a
+        // fallback. Requiring FULL_TRACKING was too strict: ARCore drops in
+        // and out of it constantly for a board seen at an angle or in
+        // imperfect light, and each drop made the cube vanish.
+        val match = candidates.firstOrNull {
+            it.trackingMethod == AugmentedImage.TrackingMethod.FULL_TRACKING
+        } ?: candidates.firstOrNull {
+            it.trackingMethod == AugmentedImage.TrackingMethod.LAST_KNOWN_POSE
         } ?: return
 
         originAnchor?.detach()
