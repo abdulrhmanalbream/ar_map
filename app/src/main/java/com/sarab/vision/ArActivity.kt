@@ -444,6 +444,10 @@ class ArActivity : ComponentActivity() {
     // changes instead, which do not fight the lifecycle.
 
     override fun onDestroy() {
+        // Clear the renderer's reference BEFORE closing, so the GL thread can
+        // never call into a closed session. Leaving it dangling was part of
+        // why a second launch misbehaved.
+        renderer.session = null
         session?.close()
         session = null
         super.onDestroy()

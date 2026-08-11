@@ -80,7 +80,26 @@ class ArSceneRenderer(
     private val markerRenderer = MarkerRenderer()
     private val labelRenderer = LabelRenderer()
 
+    /**
+     * The active ARCore session.
+     *
+     * Assigning a NEW session resets all per-session tracking state. The
+     * renderer outlives individual sessions (the Activity keeps one renderer
+     * and rebuilds the session on resume), so without this the second run
+     * inherited stale state from the first: a timed-out image search, a
+     * detached origin anchor, and a cached route. That is why the app worked
+     * once, then failed on every later launch until the user cleared app
+     * data.
+     */
     var session: Session? = null
+        set(value) {
+            if (field !== value) {
+                field = value
+                if (value != null) resetForNewSession()
+            } else {
+                field = value
+            }
+        }
 
     /**
      * True when a reference image was loaded into the session.
@@ -132,6 +151,9 @@ class ArSceneRenderer(
     private var viewportHeight = 1
 
     private var lastReportedState: ArUiState? = null
+
+    /** Throttle for the once-a-second tracking diagnostic. */
+    private var lastDiagnosticMs = 0L
     private var lastDistanceReport = 0L
 
     fun onTap(x: Float, y: Float) {
@@ -150,6 +172,32 @@ class ArSceneRenderer(
     }
 
     private var markerHighlighted = false
+
+    /**
+     * Clears every piece of state tied to a previous ARCore session.
+     *
+     * Called automatically when a new session is attached. Anchors belong to
+     * the session that created them, so a stale anchor from a closed session
+     * can never track again -- keeping one meant the app sat forever with an
+     * origin it could not use.
+     */
+    private fun resetForNewSession() {
+        // Do NOT detach: the old session owns this anchor and is already
+        // closed, so touching it would throw. Just drop the reference.
+        originAnchor = null
+        originIsFromImage = false
+        worldRoute = emptyList()
+        haveOriginMarkerPos = false
+        lastBuiltOriginPos[0] = Float.NaN
+        imageSearchStartNanos = 0L
+        imageSearchTimedOut = false
+        lastReportedState = null
+        // Keep activeDestination: the user's chosen destination should
+        // survive a restart. Force the label to be re-rasterised for the new
+        // GL context, and the route to be rebuilt against the new origin.
+        labelDirty = activeDestination != null
+        Log.i(TAG, "Renderer state reset for new AR session")
+    }
 
     /** Clears the origin so it can be re-acquired. */
     fun resetOrigin() {
@@ -234,9 +282,53 @@ class ArSceneRenderer(
         val camera = frame.camera
         cameraRenderer.draw(frame)
 
-        if (camera.trackingState != TrackingState.TRACKING) {
+        // Log why tracking is not established, at most once a second. Without
+        // this the app just sits on a hint with no way to tell whether the
+        // problem is lighting, motion, or the marker itself.
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastDiagnosticMs > 1000) {
+            lastDiagnosticMs = nowMs
+            val imgs = try {
+                session.getAllTrackables(AugmentedImage::class.java)
+            } catch (e: Exception) {
+                emptyList<AugmentedImage>()
+            }
+            Log.i(
+                TAG,
+                "diag: cameraTracking=${camera.trackingState} " +
+                    "reason=${camera.trackingFailureReason} " +
+                    "images=${imgs.size} " +
+                    imgs.joinToString { "${it.name}:${it.trackingState}/${it.trackingMethod}" } +
+                    " origin=${if (originAnchor != null) "yes" else "no"}" +
+                    " usingImage=$usingImageOrigin timedOut=$imageSearchTimedOut"
+            )
+        }
+
+        val cameraFullyTracking = camera.trackingState == TrackingState.TRACKING
+
+        // Hunt for the reference image regardless of full camera tracking.
+        //
+        // ARCore reports augmented images independently of camera tracking,
+        // and the camera only reaches TRACKING once it has enough parallax. A
+        // user holding the phone steady on the board never got there, so the
+        // image was never even looked for -- the app sat on "point at the
+        // board" while the board filled the frame.
+        if (originAnchor == null && usingImageOrigin && !imageSearchTimedOut) {
+            // Start the timeout clock here too, otherwise it only advanced
+            // under full tracking and the plane fallback never fired either.
+            if (imageSearchStartNanos == 0L) {
+                imageSearchStartNanos = System.nanoTime()
+            }
+            tryAcquireImageOrigin(frame)
+        }
+
+        if (!cameraFullyTracking) {
             report(if (originAnchor == null) currentSearchState() else ArUiState.Tracking)
-            return
+            // IMPORTANT: do not return yet. The camera pose is still usable
+            // for rendering, and returning here meant that once the image WAS
+            // acquired the cube still never drew, because we bailed out before
+            // computing the view matrices. That is the "it detects but nothing
+            // appears" case.
         }
 
         camera.getViewMatrix(viewMatrix, 0)
@@ -251,15 +343,11 @@ class ArSceneRenderer(
         // appears. Without this timeout a poor reference image leaves the app
         // searching indefinitely and nothing is ever drawn.
         if (originAnchor == null) {
-            if (imageSearchStartNanos == 0L) {
-                imageSearchStartNanos = System.nanoTime()
-            }
-
             if (usingImageOrigin && !imageSearchTimedOut) {
-                tryAcquireImageOrigin(frame)
-
+                // The search itself already ran above (before the tracking
+                // gate); here we only decide when to give up on it.
                 val waited = (System.nanoTime() - imageSearchStartNanos) / 1_000_000_000f
-                if (originAnchor == null && waited > IMAGE_SEARCH_TIMEOUT_SEC) {
+                if (imageSearchStartNanos != 0L && waited > IMAGE_SEARCH_TIMEOUT_SEC) {
                     Log.w(
                         TAG,
                         "Reference image not found after ${IMAGE_SEARCH_TIMEOUT_SEC}s; " +
@@ -268,7 +356,9 @@ class ArSceneRenderer(
                     imageSearchTimedOut = true
                     report(ArUiState.ImageSearchTimedOut)
                 }
-            } else {
+            } else if (cameraFullyTracking) {
+                // Plane detection needs a reliable camera pose, so unlike the
+                // image search this one does require full tracking.
                 tryAcquirePlaneOrigin(session, frame)
             }
         }
