@@ -183,7 +183,14 @@ fun CampusMapScreen(
         }
 
         // ---- Overlays ----------------------------------------------------
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        // Sits on a solid backdrop: over a busy map the white title was
+        // unreadable, and it visually collided with the close button.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Bg.copy(alpha = 0.92f))
+                .padding(16.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -193,9 +200,18 @@ fun CampusMapScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "${landmarks.size} معلم" + (
-                            userFix?.let { " · دقة ±${it.accuracyMeters.toInt()} م" } ?: " · لا يوجد موقع"
-                            ),
+                        // Build the parts separately: interpolating a number
+                        // straight into an Arabic string renders the digits
+                        // and words in the wrong visual order.
+                        buildString {
+                            append("عدد المعالم: ")
+                            append(landmarks.size)
+                            userFix?.let {
+                                append(" · دقة الموقع ")
+                                append(it.accuracyMeters.toInt())
+                                append(" م")
+                            } ?: append(" · لا يوجد موقع")
+                        },
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -240,7 +256,10 @@ fun CampusMapScreen(
                     Text(
                         buildString {
                             append(lm.category.labelAr)
-                            if (distance != null) append(" · ${formatDistanceAr(distance)}")
+                            if (distance != null) {
+                                append(" · يبعد ")
+                                append(formatDistanceAr(distance))
+                            }
                         },
                         color = Muted,
                         fontSize = 12.sp

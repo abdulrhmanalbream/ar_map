@@ -58,6 +58,14 @@ class CampusState(private val context: Context) {
     var guidance by mutableStateOf<GuidanceMode>(GuidanceMode.NoFix)
         private set
 
+    /**
+     * Notified whenever position, heading or target changes.
+     *
+     * The AR renderer runs on the GL thread and cannot observe Compose state,
+     * so it needs an explicit push of the latest bearing and distance.
+     */
+    var onUpdate: (() -> Unit)? = null
+
     /** GPS samples accumulated for the landmark currently being captured. */
     private val surveySamples = mutableListOf<GpsFix>()
     var surveySampleCount by mutableStateOf(0)
@@ -99,9 +107,10 @@ class CampusState(private val context: Context) {
     fun startSensors(): Boolean {
         heading.start()
         heading.onHeading = { deg ->
-            // Demo mode owns the heading; a live compass reading would fight
-            // the simulated turns and make the arrow jitter.
-            if (!demoActive) {
+            // Demo mode normally owns the heading, since a live reading would
+            // fight the simulated turns. But when the user explicitly asks to
+            // test the real compass, it wins.
+            if (!demoActive || useRealHeading) {
                 headingDegrees = deg
                 recomputeGuidance()
             }
@@ -221,9 +230,59 @@ class CampusState(private val context: Context) {
     /** Simulated turning, so the arrow can be checked without moving. */
     fun demoTurn(degrees: Double) {
         if (!demoActive) return
+        useRealHeading = false
         simulatedHeading = (simulatedHeading + degrees + 360.0) % 360.0
         headingDegrees = simulatedHeading
         recomputeGuidance()
+    }
+
+    /**
+     * When true, the real magnetometer drives the arrow even in demo mode.
+     *
+     * Simulated turning proves the maths; only the real compass proves the
+     * phone knows which way it is physically pointing. Turning the phone 180
+     * degrees by hand and watching the arrow swing is the convincing test.
+     */
+    var useRealHeading by mutableStateOf(false)
+        private set
+
+    fun toggleRealHeading() {
+        useRealHeading = !useRealHeading
+        if (!useRealHeading) {
+            // Freeze at whatever the compass last read, so the arrow does not
+            // jump when handing control back to the buttons.
+            simulatedHeading = headingDegrees ?: simulatedHeading
+        }
+        recomputeGuidance()
+    }
+
+    /**
+     * Drops a target a few metres ahead, in the direction currently faced.
+     *
+     * Built for the laptop test: put the printed marker on a screen in front
+     * of you, tap this, and the app should guide you straight to it. It is
+     * the closest thing to a real destination that fits indoors.
+     */
+    fun placeTargetAhead(metres: Double = 5.0) {
+        val from = fix?.position ?: simulatedPosition ?: return
+        if (!from.isValid) return
+
+        val facing = headingDegrees ?: simulatedHeading
+        val position = stepAlongBearing(from, facing, metres)
+
+        val marker = Landmark(
+            id = "demo-ahead-${System.currentTimeMillis()}",
+            name = "الهدف التجريبي",
+            category = LandmarkCategory.OTHER,
+            position = position,
+            detail = "هدف وُضع أمامك مباشرة لاختبار السهم والمسار.",
+            capturedAccuracyM = 3f
+        )
+
+        landmarks.add(marker)
+        target = marker
+        recomputeGuidance()
+        Log.i(TAG, "Placed demo target ${metres}m ahead at bearing $facing")
     }
 
     private fun publishSimulatedFix() {
@@ -241,6 +300,7 @@ class CampusState(private val context: Context) {
         } else {
             guidanceFor(position, headingDegrees, t, landmarks)
         }
+        onUpdate?.invoke()
     }
 
     // ---- Survey ---------------------------------------------------------

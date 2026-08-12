@@ -50,6 +50,9 @@ fun DemoControls(
     onWalk: (Double) -> Unit,
     onTeleportToTarget: () -> Unit,
     onTurn: (Double) -> Unit,
+    useRealHeading: Boolean = false,
+    onToggleRealHeading: () -> Unit = {},
+    onPlaceMarkerHere: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -150,6 +153,65 @@ fun DemoControls(
             DemoButton("↺ 45°", Modifier.weight(1f)) { onTurn(-45.0) }
             DemoButton("↻ 45°", Modifier.weight(1f)) { onTurn(45.0) }
             DemoButton("استدر 180°", Modifier.weight(1f)) { onTurn(180.0) }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        // Real-compass mode. Simulated turning proves the arrow maths, but
+        // only the real magnetometer proves the phone knows which way it is
+        // actually pointing -- which is the thing the user asked about.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF16202C), RoundedCornerShape(12.dp))
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("البوصلة الحقيقية", color = Color.White, fontSize = 14.sp)
+                Text(
+                    if (useRealHeading)
+                        "لِف الجوال بيدك وشوف السهم يتحرك"
+                    else
+                        "الاتجاه محاكى بالأزرار أعلاه",
+                    color = if (useRealHeading) Good else Muted,
+                    fontSize = 11.sp
+                )
+            }
+            Text(
+                text = if (useRealHeading) "مفعّلة" else "تفعيل",
+                color = if (useRealHeading) Good else Accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .background(Color(0xFF243244), RoundedCornerShape(10.dp))
+                    .clickable { onToggleRealHeading() }
+                    .padding(horizontal = 14.dp, vertical = 9.dp)
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // Marker-on-a-screen test: put the printed marker on a laptop and
+        // have the app guide you to it. It closes the loop between GPS
+        // guidance and the close-range visual marker.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0x33FFB300), RoundedCornerShape(12.dp))
+                .clickable(onClick = onPlaceMarkerHere)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("ضع وجهة أمامي (5 م)", color = Amber, fontSize = 14.sp)
+                Text(
+                    "افتح صورة العلامة على اللاب وضعها أمامك، ثم اضغط هنا",
+                    color = Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
         }
 
         Spacer(Modifier.height(12.dp))

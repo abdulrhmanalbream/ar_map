@@ -87,6 +87,18 @@
         </activity>
 
         <!--
+          The camera-first navigation screen: the path is drawn on the real
+          ground, aimed by GPS. This is the primary experience; the 2D map is
+          a secondary reference.
+        -->
+        <activity
+            android:name=".ArNavActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.SarabVision" />
+
+        <!--
           The V2 printed-marker AR screen is kept and still reachable: it is
           more precise than GPS at close range, which is exactly what the
           final few metres need.

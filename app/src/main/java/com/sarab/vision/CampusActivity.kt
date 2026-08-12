@@ -57,11 +57,24 @@ class CampusActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        campus = CampusState(this)
-        campus.load()
+        // Shared instance: the AR screen must see the same target, fix and
+        // landmark set, otherwise choosing a destination here would mean
+        // nothing over there.
+        campus = CampusApp.state(this)
         hasLocationPermission = checkLocationPermission()
 
         setContent {
+            // Force right-to-left layout.
+            //
+            // The UI is Arabic but the device locale here is en-GB, so
+            // Compose laid everything out left-to-right: the title and close
+            // button overlapped, and mixed Arabic/number strings rendered in
+            // the wrong order. Pinning the direction makes the layout correct
+            // regardless of the phone's language setting.
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalLayoutDirection provides
+                    androidx.compose.ui.unit.LayoutDirection.Rtl
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -113,8 +126,17 @@ class CampusActivity : ComponentActivity() {
                                     landmarks = campus.landmarks,
                                     userFix = campus.fix,
                                     onSelect = { lm ->
+                                        // Straight into the camera view: the
+                                        // point of the app is seeing the path
+                                        // on the real ground, not reading a
+                                        // map.
                                         campus.selectTarget(lm)
-                                        campus.mode = AppMode.NAVIGATE
+                                        startActivity(
+                                            Intent(
+                                                this@CampusActivity,
+                                                ArNavActivity::class.java
+                                            ).putExtra(ArNavActivity.EXTRA_TARGET_ID, lm.id)
+                                        )
                                     },
                                     onOpenMap = { campus.mode = AppMode.MAP },
                                     onOpenSurvey = {
@@ -132,7 +154,10 @@ class CampusActivity : ComponentActivity() {
                                 onStop = { campus.stopDemo() },
                                 onWalk = { campus.demoWalk(it) },
                                 onTeleportToTarget = { campus.demoTeleportToTarget() },
-                                onTurn = { campus.demoTurn(it) }
+                                onTurn = { campus.demoTurn(it) },
+                                useRealHeading = campus.useRealHeading,
+                                onToggleRealHeading = { campus.toggleRealHeading() },
+                                onPlaceMarkerHere = { campus.placeTargetAhead() }
                             )
                         }
 
@@ -166,6 +191,7 @@ class CampusActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }
