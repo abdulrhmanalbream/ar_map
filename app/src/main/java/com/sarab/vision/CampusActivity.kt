@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +26,7 @@ import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.BlockingMessage
 import com.sarab.vision.ui.CampusMapScreen
+import com.sarab.vision.ui.DemoControls
 import com.sarab.vision.ui.LandmarkListScreen
 import com.sarab.vision.ui.SurveyScreen
 
@@ -66,15 +68,35 @@ class CampusActivity : ComponentActivity() {
                     .background(Color(0xFF0D1B2A))
             ) {
                 when {
-                    !hasLocationPermission -> BlockingMessage(
-                        title = "نحتاج إذن الموقع",
-                        body = "يستخدم التطبيق GPS لتحديد موقعك داخل الحرم وتوجيهك " +
-                            "إلى المباني. يعمل بالكامل بدون إنترنت، ولا تغادر بياناتك جهازك.",
-                        actionLabel = "السماح",
-                        onAction = { requestLocationPermission() }
-                    )
+                    // Demo mode deliberately bypasses these gates: it needs
+                    // no GPS at all, and it is exactly what someone away from
+                    // the campus (or indoors with no fix) should be able to
+                    // reach without first granting location access.
+                    !hasLocationPermission && !campus.demoActive -> Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            BlockingMessage(
+                                title = "نحتاج إذن الموقع",
+                                body = "يستخدم التطبيق GPS لتحديد موقعك داخل الحرم وتوجيهك " +
+                                    "إلى المباني. يعمل بالكامل بدون إنترنت، ولا تغادر بياناتك جهازك.",
+                                actionLabel = "السماح",
+                                onAction = { requestLocationPermission() }
+                            )
+                        }
+                        DemoControls(
+                            active = false,
+                            guidance = campus.guidance,
+                            targetName = null,
+                            onStart = { campus.startDemo() },
+                            onStop = { campus.stopDemo() },
+                            onWalk = {},
+                            onTeleportToTarget = {},
+                            onTurn = {}
+                        )
+                    }
 
-                    gpsDisabled -> BlockingMessage(
+                    gpsDisabled && !campus.demoActive -> BlockingMessage(
                         title = "خدمة الموقع مغلقة",
                         body = "فعّل خدمة الموقع (GPS) من إعدادات الجهاز حتى يتمكن " +
                             "التطبيق من تحديد موقعك.",
@@ -85,20 +107,34 @@ class CampusActivity : ComponentActivity() {
                     )
 
                     else -> when (campus.mode) {
-                        AppMode.LIST -> LandmarkListScreen(
-                            landmarks = campus.landmarks,
-                            userFix = campus.fix,
-                            onSelect = { lm ->
-                                campus.selectTarget(lm)
-                                campus.mode = AppMode.NAVIGATE
-                            },
-                            onOpenMap = { campus.mode = AppMode.MAP },
-                            onOpenSurvey = {
-                                campus.beginCapture()
-                                campus.mode = AppMode.SURVEY
-                            },
-                            onClose = { finish() }
-                        )
+                        AppMode.LIST -> Column(modifier = Modifier.fillMaxSize()) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                LandmarkListScreen(
+                                    landmarks = campus.landmarks,
+                                    userFix = campus.fix,
+                                    onSelect = { lm ->
+                                        campus.selectTarget(lm)
+                                        campus.mode = AppMode.NAVIGATE
+                                    },
+                                    onOpenMap = { campus.mode = AppMode.MAP },
+                                    onOpenSurvey = {
+                                        campus.beginCapture()
+                                        campus.mode = AppMode.SURVEY
+                                    },
+                                    onClose = { finish() }
+                                )
+                            }
+                            DemoControls(
+                                active = campus.demoActive,
+                                guidance = campus.guidance,
+                                targetName = campus.target?.name,
+                                onStart = { campus.startDemo() },
+                                onStop = { campus.stopDemo() },
+                                onWalk = { campus.demoWalk(it) },
+                                onTeleportToTarget = { campus.demoTeleportToTarget() },
+                                onTurn = { campus.demoTurn(it) }
+                            )
+                        }
 
                         AppMode.MAP -> CampusMapScreen(
                             landmarks = campus.landmarks,
@@ -148,14 +184,33 @@ class CampusActivity : ComponentActivity() {
             campus.mode = AppMode.LIST
             return
         }
-        CampusMapScreen(
-            landmarks = campus.landmarks,
-            userFix = campus.fix,
-            headingDegrees = campus.headingDegrees,
-            selectedId = target.id,
-            onSelect = { campus.selectTarget(it) },
-            onClose = { campus.mode = AppMode.LIST }
-        )
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                CampusMapScreen(
+                    landmarks = campus.landmarks,
+                    userFix = campus.fix,
+                    headingDegrees = campus.headingDegrees,
+                    selectedId = target.id,
+                    onSelect = { campus.selectTarget(it) },
+                    onClose = { campus.mode = AppMode.LIST }
+                )
+            }
+            // Controls live here too: this is the screen where the arrow,
+            // the distance countdown and the mode changes are actually
+            // visible, so simulating movement belongs alongside them.
+            if (campus.demoActive) {
+                DemoControls(
+                    active = true,
+                    guidance = campus.guidance,
+                    targetName = target.name,
+                    onStart = { campus.startDemo() },
+                    onStop = { campus.stopDemo() },
+                    onWalk = { campus.demoWalk(it) },
+                    onTeleportToTarget = { campus.demoTeleportToTarget() },
+                    onTurn = { campus.demoTurn(it) }
+                )
+            }
+        }
     }
 
     private fun capturePhoto(viewpoint: Viewpoint) {

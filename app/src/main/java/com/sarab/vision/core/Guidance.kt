@@ -81,17 +81,24 @@ fun guidanceFor(
         return GuidanceMode.ArApproach(distance)
     }
 
-    // Close enough to have arrived -- but is it unambiguous? Find other
-    // landmarks that are also within reach and too close to the target for
-    // GPS to separate them.
+    // Close enough to have arrived -- but is it unambiguous?
+    //
+    // The test is whether GPS error could plausibly have put us at the other
+    // landmark instead. That means comparing against the neighbour's distance
+    // plus our own uncertainty, NOT against the arrival radius: standing
+    // exactly at building A with building B 20m away must still warn, because
+    // a 7m GPS error makes "which one is this" genuinely unanswerable.
     val confusable = others
         .filter { it.id != target.id }
         .filter { other ->
             val gap = distanceMeters(target.position, other.position)
+            if (gap >= GPS_DISTINGUISHABLE_M) return@filter false
+
+            // The neighbour is close enough to the target that GPS cannot
+            // separate them. It is only a real risk if the user is also in
+            // the vicinity of that pair rather than far from both.
             val userToOther = distanceMeters(userPosition, other.position)
-            // Ambiguous when the two are close together AND the user is
-            // genuinely near both, not merely near one of them.
-            gap < GPS_DISTINGUISHABLE_M && userToOther <= ARRIVAL_DISTANCE_M * 2
+            userToOther <= gap + GPS_DISTINGUISHABLE_M
         }
 
     return if (confusable.isEmpty()) {

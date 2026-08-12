@@ -13,9 +13,12 @@ import com.sarab.vision.core.LandmarkCategory
 import com.sarab.vision.core.LandmarkPhoto
 import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Viewpoint
+import com.sarab.vision.core.DemoCampus
 import com.sarab.vision.core.averageFixes
 import com.sarab.vision.core.bearingDegrees
 import com.sarab.vision.core.distanceMeters
+import com.sarab.vision.core.stepAlongBearing
+import com.sarab.vision.core.stepTowards
 import com.sarab.vision.core.findAmbiguousPairs
 import com.sarab.vision.core.guidanceFor
 import com.sarab.vision.data.LandmarkStore
@@ -68,6 +71,22 @@ class CampusState(private val context: Context) {
     /** Set when two captured landmarks are too close for GPS to separate. */
     var ambiguityWarning by mutableStateOf<String?>(null)
 
+    // ---- Demo mode ------------------------------------------------------
+
+    /**
+     * Demo mode replaces GPS with a simulated position.
+     *
+     * It exists because the whole system is otherwise unjudgeable without
+     * physically standing on the campus. Real landmarks are kept untouched
+     * and restored on exit, so trying the demo can never damage a survey.
+     */
+    var demoActive by mutableStateOf(false)
+        private set
+
+    private var simulatedPosition: LatLng? = null
+    private var simulatedHeading: Double = 0.0
+    private var realLandmarksBackup: List<Landmark> = emptyList()
+
     val photoDir get() = store.photoDir
 
     fun load() {
@@ -80,24 +99,32 @@ class CampusState(private val context: Context) {
     fun startSensors(): Boolean {
         heading.start()
         heading.onHeading = { deg ->
-            headingDegrees = deg
-            recomputeGuidance()
+            // Demo mode owns the heading; a live compass reading would fight
+            // the simulated turns and make the arrow jitter.
+            if (!demoActive) {
+                headingDegrees = deg
+                recomputeGuidance()
+            }
         }
 
         location.onFix = { f ->
-            fix = f
-            // Feed declination to the compass so its heading is true-north,
-            // matching the GPS bearings we navigate by.
-            heading.magneticDeclination = declinationFor(f.position)
+            // Demo mode supplies its own position; a real fix arriving here
+            // would teleport the user out of the simulated campus.
+            if (!demoActive) {
+                fix = f
+                // Feed declination to the compass so its heading is
+                // true-north, matching the GPS bearings we navigate by.
+                heading.magneticDeclination = declinationFor(f.position)
 
-            if (mode == AppMode.SURVEY) {
-                surveySamples.add(f)
-                // Keep only recent samples: older ones may be from before the
-                // surveyor reached the entrance.
-                if (surveySamples.size > 12) surveySamples.removeAt(0)
-                surveySampleCount = surveySamples.size
+                if (mode == AppMode.SURVEY) {
+                    surveySamples.add(f)
+                    // Keep only recent samples: older ones may be from before
+                    // the surveyor reached the entrance.
+                    if (surveySamples.size > 12) surveySamples.removeAt(0)
+                    surveySampleCount = surveySamples.size
+                }
+                recomputeGuidance()
             }
-            recomputeGuidance()
         }
         return location.start()
     }
@@ -111,6 +138,98 @@ class CampusState(private val context: Context) {
 
     fun selectTarget(landmark: Landmark?) {
         target = landmark
+        recomputeGuidance()
+    }
+
+    /**
+     * Starts demo mode, building a fake campus around the current position.
+     *
+     * Falls back to a default coordinate when there is no GPS fix yet, so the
+     * demo works indoors, on a plane, or anywhere GPS has not locked on --
+     * which is precisely when someone needs it most.
+     */
+    fun startDemo() {
+        if (demoActive) return
+
+        realLandmarksBackup = landmarks.toList()
+
+        val centre = fix?.position?.takeIf { it.isValid }
+            ?: LatLng(24.4672, 39.6111) // fallback so the demo always works
+        simulatedPosition = centre
+        simulatedHeading = headingDegrees ?: 0.0
+
+        val demoLandmarks = DemoCampus.generate(centre, simulatedHeading)
+        landmarks.clear()
+        landmarks.addAll(demoLandmarks)
+
+        demoActive = true
+        // Preselect the far landmark so the compass and distant marker are
+        // the first things seen.
+        target = demoLandmarks.firstOrNull { it.name.contains("الملعب") }
+        publishSimulatedFix()
+        Log.i(TAG, "Demo started at $centre with ${demoLandmarks.size} landmarks")
+    }
+
+    /** Ends demo mode and restores the real survey untouched. */
+    fun stopDemo() {
+        if (!demoActive) return
+        demoActive = false
+        simulatedPosition = null
+
+        landmarks.clear()
+        landmarks.addAll(realLandmarksBackup)
+        target = null
+
+        // Fall back to whatever the real providers last reported.
+        fix = location.lastFix
+        headingDegrees = null
+        recomputeGuidance()
+        Log.i(TAG, "Demo stopped; restored ${landmarks.size} real landmarks")
+    }
+
+    /** Simulated walking. Negative values step backwards. */
+    fun demoWalk(metres: Double) {
+        if (!demoActive) return
+        val from = simulatedPosition ?: return
+
+        simulatedPosition = if (metres >= 0) {
+            val t = target?.position
+            if (t != null) stepTowards(from, t, metres)
+            else stepAlongBearing(from, simulatedHeading, metres)
+        } else {
+            // Walking "backwards" means away from the target, which is the
+            // useful thing to test (does the arrow turn around?).
+            val t = target?.position
+            val awayBearing = if (t != null) {
+                (bearingDegrees(from, t) + 180.0) % 360.0
+            } else {
+                (simulatedHeading + 180.0) % 360.0
+            }
+            stepAlongBearing(from, awayBearing, -metres)
+        }
+        publishSimulatedFix()
+    }
+
+    /** Jumps to just short of the target, to test arrival and ambiguity. */
+    fun demoTeleportToTarget() {
+        if (!demoActive) return
+        val t = target?.position ?: return
+        simulatedPosition = t
+        publishSimulatedFix()
+    }
+
+    /** Simulated turning, so the arrow can be checked without moving. */
+    fun demoTurn(degrees: Double) {
+        if (!demoActive) return
+        simulatedHeading = (simulatedHeading + degrees + 360.0) % 360.0
+        headingDegrees = simulatedHeading
+        recomputeGuidance()
+    }
+
+    private fun publishSimulatedFix() {
+        val p = simulatedPosition ?: return
+        fix = GpsFix(position = p, accuracyMeters = 5f, timestampMs = System.currentTimeMillis())
+        headingDegrees = simulatedHeading
         recomputeGuidance()
     }
 
