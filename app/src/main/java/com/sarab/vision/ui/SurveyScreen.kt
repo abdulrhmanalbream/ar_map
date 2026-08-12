@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sarab.vision.core.CampusSeed
 import com.sarab.vision.core.GpsFix
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.LandmarkCategory
@@ -191,6 +192,39 @@ fun SurveyScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        // ---- Quick-fill templates ------------------------------------------
+        // Typing Arabic on a phone outdoors in the sun is miserable, so the
+        // planned landmarks are one tap away with their details prefilled.
+        val remaining = CampusSeed.remaining(capturedLandmarks)
+        if (remaining.isNotEmpty()) {
+            Text("المعالم المتبقية", color = Muted, fontSize = 12.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                remaining.forEach { t ->
+                    Text(
+                        text = t.name,
+                        color = Warn,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .background(Color(0x33FFB300), RoundedCornerShape(20.dp))
+                            .clickable {
+                                name = t.name
+                                detail = t.detail
+                                category = t.category
+                            }
+                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
         // ---- Landmark details --------------------------------------------
         OutlinedTextField(
             value = name,
@@ -216,7 +250,7 @@ fun SurveyScreen(
             LandmarkCategory.entries.forEach { c ->
                 val selected = c == category
                 Text(
-                    text = c.label,
+                    text = c.labelAr,
                     color = if (selected) Bg else Muted,
                     fontSize = 13.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -353,8 +387,8 @@ fun SurveyScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(lm.name, color = Color.White, fontSize = 15.sp)
                         Text(
-                            "${lm.category.label} · ${lm.photos.size} photos · " +
-                                "±${lm.capturedAccuracyM.roundToInt()} m",
+                            "${lm.category.labelAr} · ${lm.photos.size} صور · " +
+                                "±${lm.capturedAccuracyM.roundToInt()} م",
                             color = Muted,
                             fontSize = 11.sp
                         )

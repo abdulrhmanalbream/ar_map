@@ -72,13 +72,17 @@ enum class Viewpoint(val label: String) {
  * Landmark type. Drives the marker colour and icon letter, and lets the user
  * filter the list.
  */
-enum class LandmarkCategory(val label: String, val letter: String) {
-    HOUSING("Housing", "H"),
-    SPORTS("Sports", "S"),
-    FACULTY("Faculty", "F"),
-    SERVICES("Services", "V"),
-    GATE("Gate", "G"),
-    OTHER("Other", "O");
+enum class LandmarkCategory(
+    val label: String,
+    val labelAr: String,
+    val letter: String
+) {
+    HOUSING("Housing", "سكن", "H"),
+    SPORTS("Sports", "ملاعب", "S"),
+    FACULTY("Faculty", "كلية", "F"),
+    SERVICES("Services", "خدمات", "V"),
+    GATE("Gate", "بوابة", "G"),
+    OTHER("Other", "أخرى", "O");
 
     companion object {
         fun fromName(name: String): LandmarkCategory =
@@ -129,3 +133,57 @@ const val AR_HANDOFF_DISTANCE_M = 30.0
 
 /** Distance at which the user is considered to have arrived. */
 const val ARRIVAL_DISTANCE_M = 8.0
+
+/**
+ * Normalises Arabic text so search behaves the way users expect.
+ *
+ * Handles the three things that otherwise make Arabic search feel broken:
+ *  - Arabic-Indic digits (١٣) and Persian digits are folded to ASCII, so
+ *    typing "13" finds "وحدة ١٣" and vice versa
+ *  - alef variants (أ إ آ) fold to ا, and ة folds to ه, since users rarely
+ *    type the exact form
+ *  - diacritics (tashkeel) are stripped
+ */
+fun normaliseForSearch(input: String): String {
+    val sb = StringBuilder(input.length)
+    for (ch in input.lowercase()) {
+        val mapped = when (ch) {
+            // Arabic-Indic digits
+            in '٠'..'٩' -> ('0' + (ch - '٠'))
+            // Extended Arabic-Indic (Persian) digits
+            in '۰'..'۹' -> ('0' + (ch - '۰'))
+            'أ', 'إ', 'آ', 'ٱ' -> 'ا'
+            'ة' -> 'ه'
+            'ى' -> 'ي'
+            'ؤ' -> 'و'
+            'ئ' -> 'ي'
+            // Strip tashkeel and tatweel entirely.
+            in 'ً'..'ٟ', 'ـ', 'ٰ' -> continue
+            else -> ch
+        }
+        sb.append(mapped)
+    }
+    return sb.toString().trim()
+}
+
+/**
+ * Matches a landmark against a search query.
+ *
+ * Numbers are compared as whole tokens, so searching "13" matches
+ * "وحدة 13" but NOT "وحدة 1" or "وحدة 3" -- exactly the confusion a numbered
+ * housing block would otherwise cause.
+ */
+fun matchesQuery(landmark: Landmark, query: String): Boolean {
+    val q = normaliseForSearch(query)
+    if (q.isBlank()) return true
+
+    val haystack = normaliseForSearch(
+        "${landmark.name} ${landmark.category.label} ${landmark.category.labelAr} ${landmark.detail}"
+    )
+
+    // A purely numeric query must match a standalone number, not a substring.
+    if (q.all { it.isDigit() }) {
+        return Regex("(?<!\\d)$q(?!\\d)").containsMatchIn(haystack)
+    }
+    return haystack.contains(q)
+}
