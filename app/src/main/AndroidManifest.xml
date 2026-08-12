@@ -21,6 +21,25 @@
     -->
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
 
+    <!--
+      GPS for campus-scale navigation.
+
+      ARCore drifts about a metre every 10-20m walked, which is fine indoors
+      but useless across a campus where buildings are 100-300m apart. GPS
+      gives an absolute fix that never drifts; ARCore then handles the last
+      few metres, where its local precision beats GPS.
+
+      Still fully offline: GNSS satellites broadcast everything needed, so no
+      network is involved. INTERNET remains undeclared.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- GPS hardware is required for outdoor navigation. -->
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="true" />
+
     <uses-feature
         android:name="android.hardware.camera.ar"
         android:required="true" />
