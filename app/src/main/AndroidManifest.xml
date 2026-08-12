@@ -70,8 +70,12 @@
             android:name="com.google.ar.core"
             android:value="required" />
 
+        <!--
+          Campus navigation (V3) is the entry point: it is GPS-first, works
+          across the whole campus and needs no printed marker.
+        -->
         <activity
-            android:name=".ArActivity"
+            android:name=".CampusActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="portrait"
@@ -81,6 +85,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          The V2 printed-marker AR screen is kept and still reachable: it is
+          more precise than GPS at close range, which is exactly what the
+          final few metres need.
+        -->
+        <activity
+            android:name=".ArActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.SarabVision" />
     </application>
 
 </manifest>
