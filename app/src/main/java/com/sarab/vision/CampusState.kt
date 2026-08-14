@@ -26,13 +26,14 @@ import com.sarab.vision.core.stepTowards
 import com.sarab.vision.core.findAmbiguousPairs
 import com.sarab.vision.core.guidanceFor
 import com.sarab.vision.data.LandmarkStore
+import com.sarab.vision.data.PathNetworkStore
 import com.sarab.vision.loc.HeadingProvider
 import com.sarab.vision.loc.LocationProvider
 
 private const val TAG = "SarabCampus"
 
 /** Which screen the user is on. */
-enum class AppMode { NAVIGATE, LIST, MAP, SURVEY }
+enum class AppMode { NAVIGATE, LIST, MAP, SURVEY, PATHS }
 
 /**
  * Holds all campus navigation state and owns the GPS/compass providers.
@@ -102,6 +103,20 @@ class CampusState(private val context: Context) {
     var pathNetwork by mutableStateOf(PathNetwork())
         private set
 
+    private val pathStore = PathNetworkStore(context)
+
+    /** Replaces and persists the network, then re-routes against it. */
+    fun updatePathNetwork(network: PathNetwork) {
+        pathNetwork = network
+        pathStore.save(network)
+        // The existing route was computed against the old graph, so it is
+        // stale the moment the network changes.
+        lastRoutedFrom = null
+        recomputeGuidance()
+    }
+
+    fun exportPathsJson(): String = pathStore.exportJson()
+
     /** Current route to the target, or null when there is nothing to show. */
     var route by mutableStateOf<Route?>(null)
         private set
@@ -148,7 +163,11 @@ class CampusState(private val context: Context) {
     fun load() {
         landmarks.clear()
         landmarks.addAll(store.load())
-        Log.i(TAG, "Loaded ${landmarks.size} landmarks")
+        pathNetwork = pathStore.load()
+        Log.i(
+            TAG,
+            "Loaded ${landmarks.size} landmarks and ${pathNetwork.edges.size} path edges"
+        )
         refreshAmbiguityWarning()
 
         // An empty campus is a blank, useless screen. Until a real survey

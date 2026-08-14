@@ -59,6 +59,7 @@ fun LandmarkListScreen(
     onSelect: (Landmark) -> Unit,
     onOpenMap: () -> Unit,
     onOpenSurvey: () -> Unit,
+    onOpenPaths: () -> Unit,
     onClose: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -192,10 +193,21 @@ fun LandmarkListScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 14.dp)
+                .padding(top = 14.dp)
         ) {
             BottomAction("الخريطة", Modifier.weight(1f), onOpenMap)
             BottomAction("وضع المسح", Modifier.weight(1f), onOpenSurvey)
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp, bottom = 14.dp)
+        ) {
+            // Drawing the paths is what turns the tested routing engine into
+            // something that actually produces routes, so it earns its own
+            // entry point rather than hiding in a menu.
+            BottomAction("رسم الطرق", Modifier.weight(1f), onOpenPaths)
         }
     }
 }

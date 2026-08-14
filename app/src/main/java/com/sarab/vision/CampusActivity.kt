@@ -26,6 +26,7 @@ import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.BlockingMessage
 import com.sarab.vision.ui.MapScreen
+import com.sarab.vision.ui.PathEditorScreen
 import com.sarab.vision.ui.DemoControls
 import com.sarab.vision.ui.LandmarkListScreen
 import com.sarab.vision.ui.SurveyScreen
@@ -143,6 +144,7 @@ class CampusActivity : ComponentActivity() {
                                         campus.beginCapture()
                                         campus.mode = AppMode.SURVEY
                                     },
+                                    onOpenPaths = { campus.mode = AppMode.PATHS },
                                     onClose = { finish() }
                                 )
                             }
@@ -188,6 +190,15 @@ class CampusActivity : ComponentActivity() {
                             },
                             onExport = { exportSurvey() },
                             onExit = { campus.mode = AppMode.LIST }
+                        )
+
+                        AppMode.PATHS -> PathEditorScreen(
+                            network = campus.pathNetwork,
+                            landmarks = campus.landmarks,
+                            userFix = campus.fix,
+                            onNetworkChange = { campus.updatePathNetwork(it) },
+                            onExport = { exportPaths() },
+                            onClose = { campus.mode = AppMode.LIST }
                         )
 
                         AppMode.NAVIGATE -> {
@@ -260,6 +271,17 @@ class CampusActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+    /** Shares the drawn path network so it can be committed into assets/. */
+    private fun exportPaths() {
+        val json = campus.exportPathsJson()
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Sarab Vision - paths.json")
+            putExtra(Intent.EXTRA_TEXT, json)
+        }
+        startActivity(Intent.createChooser(intent, "تصدير شبكة الطرق"))
     }
 
     /** Shares the survey as JSON so it can be committed into the app. */
