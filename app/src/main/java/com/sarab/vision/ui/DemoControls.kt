@@ -16,6 +16,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -55,12 +59,17 @@ fun DemoControls(
     onPlaceMarkerHere: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // Collapsed by default. These are developer controls; leaving them open
+    // squeezed the destination list into a sliver, which is the opposite of
+    // what the screen is for.
+    var expanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .background(Panel, RoundedCornerShape(18.dp))
-            .padding(16.dp)
+            .padding(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -83,19 +92,32 @@ fun DemoControls(
                     fontSize = 12.sp
                 )
             }
+            if (active) {
+                Text(
+                    text = if (expanded) "إخفاء" else "أدوات",
+                    color = Accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(horizontal = 14.dp, vertical = 9.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 text = if (active) "إيقاف" else "تشغيل",
                 color = if (active) Color(0xFFEF5350) else Accent,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
                     .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
                     .clickable { if (active) onStop() else onStart() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 14.dp, vertical = 9.dp)
             )
         }
 
-        if (!active) return@Column
+        if (!active || !expanded) return@Column
 
         Spacer(Modifier.height(14.dp))
 

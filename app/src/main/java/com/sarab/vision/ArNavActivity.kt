@@ -54,6 +54,7 @@ import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
 import com.sarab.vision.ui.BlockingMessage
 import com.sarab.vision.ui.CompassBar
+import com.sarab.vision.ui.DestinationPicker
 import com.sarab.vision.ui.DirectionArrow
 import java.util.EnumSet
 
@@ -88,6 +89,9 @@ class ArNavActivity : ComponentActivity() {
     private var arState by mutableStateOf<CampusArState>(CampusArState.Initialising)
     private var hasCameraPermission by mutableStateOf(false)
     private var unsupportedReason by mutableStateOf<String?>(null)
+
+    /** The destination sheet, shown over the camera. */
+    private var pickerVisible by mutableStateOf(false)
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -154,6 +158,24 @@ class ArNavActivity : ComponentActivity() {
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(factory = { surfaceView }, modifier = Modifier.fillMaxSize())
 
+            // Destination picker, over the camera. The camera is the app, so
+            // choosing where to go must not mean leaving it.
+            DestinationPicker(
+                landmarks = campus.landmarks,
+                userFix = campus.fix,
+                visible = pickerVisible,
+                onSelect = {
+                    campus.selectTarget(it)
+                    pickerVisible = false
+                    syncRenderer()
+                },
+                onDismiss = { pickerVisible = false },
+                onOpenTools = {
+                    pickerVisible = false
+                    startActivity(Intent(this@ArNavActivity, CampusActivity::class.java))
+                }
+            )
+
             // Direction arrow, shown whenever the target is not straight ahead.
             (guidance as? GuidanceMode.Compass)?.let { c ->
                 if (kotlin.math.abs(c.relativeDegrees) > 20) {
@@ -179,7 +201,8 @@ class ArNavActivity : ComponentActivity() {
                         ?: 0.0,
                     targetName = target?.name,
                     travelMode = campus.travelMode,
-                    onModeChange = { campus.chooseTravelMode(it) }
+                    onModeChange = { campus.chooseTravelMode(it) },
+                    needsCalibration = campus.compassNeedsCalibration
                 )
 
                 Row(
@@ -215,7 +238,7 @@ class ArNavActivity : ComponentActivity() {
                     onPick = { campus.selectTarget(it) },
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
-            } else if (target != null) {
+            } else if (!pickerVisible) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -224,25 +247,45 @@ class ArNavActivity : ComponentActivity() {
                         .background(Color(0xE6121A24), RoundedCornerShape(18.dp))
                         .padding(16.dp)
                 ) {
-                    Text(
-                        target.name,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        instructionAr(guidance, target.name),
-                        color = Color(0xFF4FC3F7),
-                        fontSize = 14.sp
-                    )
+                    if (target == null) {
+                        // No destination yet: the camera and compass still
+                        // work, so prompt rather than blocking the view.
+                        Text(
+                            "اختر وجهة للبدء",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "الكاميرا والبوصلة تعملان الآن",
+                            color = Muted,
+                            fontSize = 13.sp
+                        )
+                    } else {
+                        Text(
+                            target.name,
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            instructionAr(guidance, target.name),
+                            color = Color(0xFF4FC3F7),
+                            fontSize = 14.sp
+                        )
+                    }
+
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ActionChip("تغيير الوجهة", Modifier.weight(1f)) { finish() }
-                        ActionChip("الخريطة", Modifier.weight(1f)) {
+                        ActionChip(
+                            if (target == null) "اختر وجهة" else "تغيير الوجهة",
+                            Modifier.weight(1f)
+                        ) { pickerVisible = true }
+                        ActionChip("أدوات", Modifier.weight(1f)) {
                             startActivity(
                                 Intent(this@ArNavActivity, CampusActivity::class.java)
-                                    .putExtra("open_map", true)
                             )
                         }
                     }

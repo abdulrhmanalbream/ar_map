@@ -56,6 +56,16 @@ class CampusState(private val context: Context) {
     var headingDegrees by mutableStateOf<Double?>(null)
         private set
 
+    /**
+     * True when the magnetometer reports itself unreliable.
+     *
+     * Worth surfacing rather than hiding: a phone near metal or a magnetic
+     * case gives a confidently wrong heading, and the only fix is a physical
+     * figure-of-eight wave that the user has to be told to perform.
+     */
+    var compassNeedsCalibration by mutableStateOf(false)
+        private set
+
     var target by mutableStateOf<Landmark?>(null)
         private set
 
@@ -131,6 +141,15 @@ class CampusState(private val context: Context) {
         landmarks.addAll(store.load())
         Log.i(TAG, "Loaded ${landmarks.size} landmarks")
         refreshAmbiguityWarning()
+
+        // An empty campus is a blank, useless screen. Until a real survey
+        // exists, start in demo mode so there is always something to navigate
+        // to -- otherwise the app looks broken to anyone who has not yet
+        // walked the campus.
+        if (landmarks.size < 2) {
+            Log.i(TAG, "Too few surveyed landmarks; starting demo automatically")
+            startDemo()
+        }
     }
 
     fun startSensors(): Boolean {
@@ -141,6 +160,7 @@ class CampusState(private val context: Context) {
             // test the real compass, it wins.
             if (!demoActive || useRealHeading) {
                 headingDegrees = deg
+                compassNeedsCalibration = heading.needsCalibration
                 recomputeGuidance()
             }
         }
@@ -391,6 +411,10 @@ class CampusState(private val context: Context) {
      * permanently once saved.
      */
     fun saveLandmark(name: String, category: LandmarkCategory, detail: String): Boolean {
+        // Leave demo mode first, otherwise a real capture would be mixed into
+        // the fake campus and then wiped when demo mode restores its backup.
+        if (demoActive) stopDemo()
+
         val position = surveyAveragePosition() ?: return false
         if (!position.isValid) return false
 

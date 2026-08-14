@@ -57,6 +57,7 @@ fun CompassBar(
     targetName: String?,
     travelMode: TravelMode,
     onModeChange: (TravelMode) -> Unit,
+    needsCalibration: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -121,6 +122,26 @@ fun CompassBar(
                     targetBearingDegrees = targetBearingDegrees,
                     targetDistanceMeters = targetDistanceMeters,
                     targetName = targetName
+                )
+            }
+        }
+
+        // A magnetometer near metal or a magnetic case reads confidently
+        // wrong, and the only cure is a physical wave the user must be told
+        // to perform. Silently showing a bad heading is worse.
+        if (needsCalibration) {
+            Spacer(Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "البوصلة تحتاج معايرة — حرّك الجوال على شكل ٨",
+                    color = Amber,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .background(Color(0xCC2A1F00), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }

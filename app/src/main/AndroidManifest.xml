@@ -71,11 +71,13 @@
             android:value="required" />
 
         <!--
-          Campus navigation (V3) is the entry point: it is GPS-first, works
-          across the whole campus and needs no printed marker.
+          The camera IS the app. It launches straight into the live view with
+          the compass ribbon and the path on the ground; destinations are
+          chosen from a sheet that slides over it. The list and the map are
+          secondary screens reached from here, not the way in.
         -->
         <activity
-            android:name=".CampusActivity"
+            android:name=".ArNavActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="portrait"
@@ -86,13 +88,9 @@
             </intent-filter>
         </activity>
 
-        <!--
-          The camera-first navigation screen: the path is drawn on the real
-          ground, aimed by GPS. This is the primary experience; the 2D map is
-          a secondary reference.
-        -->
+        <!-- Secondary: full-screen list, map and survey tools. -->
         <activity
-            android:name=".ArNavActivity"
+            android:name=".CampusActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="portrait"

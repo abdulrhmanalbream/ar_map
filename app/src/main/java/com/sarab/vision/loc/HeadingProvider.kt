@@ -8,6 +8,10 @@ import android.hardware.SensorManager
 import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
+import com.sarab.vision.core.CircularSmoother
+import com.sarab.vision.core.HeadingSource
+import com.sarab.vision.core.computeHeading
+import com.sarab.vision.core.relativeBearing
 import kotlin.math.abs
 
 private const val TAG = "SarabHeading"
@@ -15,21 +19,33 @@ private const val TAG = "SarabHeading"
 /**
  * Device compass heading, in degrees clockwise from TRUE north.
  *
- * Two details matter here and are easy to get wrong:
+ * The angular maths lives in `core/HeadingMath.kt` so it can be unit-tested
+ * against hand-built rotation matrices; this class only bridges the sensor.
  *
- *  1. **True vs magnetic north.** GPS bearings are relative to true north,
- *     but the magnetometer measures magnetic north. The difference
- *     (declination) is several degrees in much of the world -- enough to aim
- *     the user at the wrong building across a campus. The caller supplies the
- *     declination from its GPS fix and we correct for it.
+ * Three things this gets right that a naive implementation does not:
  *
- *  2. **Screen rotation.** The sensor frame is fixed to the device, not the
- *     display. Without remapping, the heading is 90 degrees out in landscape.
+ *  1. **However the phone is held.** Held upright for the camera the heading
+ *     comes from where the camera looks; laid flat like a map it comes from
+ *     the top of the screen. Reading `getOrientation()[0]` alone breaks in
+ *     the upright case, which is the main way this app is used.
+ *  2. **True vs magnetic north.** GPS bearings are true-north; the
+ *     magnetometer is not. The gap is several degrees, enough to aim someone
+ *     at the wrong building across a campus.
+ *  3. **Smoothing across the wrap.** Averaging raw degrees puts the mean of
+ *     359 and 1 at 180, so the needle flips every time it crosses north.
  */
 class HeadingProvider(private val context: Context) {
 
     /** Smoothed heading in degrees from true north, or null if unavailable. */
     var headingDegrees: Double? = null
+        private set
+
+    /** Which reference the current heading came from; useful for diagnostics. */
+    var source: HeadingSource = HeadingSource.CAMERA
+        private set
+
+    /** True when the compass has reported itself unreliable. */
+    var needsCalibration: Boolean = false
         private set
 
     /** Set from the GPS fix so we can convert magnetic -> true north. */
@@ -42,13 +58,8 @@ class HeadingProvider(private val context: Context) {
     private var listening = false
 
     private val rotationMatrix = FloatArray(9)
-    private val remapped = FloatArray(9)
-    private val orientation = FloatArray(3)
-
-    /** Exponential smoothing state; raw compass output is very jittery. */
-    private var smoothedSin = 0.0
-    private var smoothedCos = 0.0
-    private var haveSmoothed = false
+    private val smoother = CircularSmoother(alpha = 0.18)
+    private var wasFlat = false
 
     private val listener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -57,13 +68,15 @@ class HeadingProvider(private val context: Context) {
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-            if (accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE) {
-                Log.w(TAG, "Compass reported unreliable - device may need a figure-8 calibration")
+            val unreliable = accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE ||
+                accuracy == SensorManager.SENSOR_STATUS_ACCURACY_LOW
+            if (unreliable != needsCalibration) {
+                needsCalibration = unreliable
+                Log.w(TAG, "Compass accuracy changed: $accuracy (needsCalibration=$unreliable)")
             }
         }
     }
 
-    /** True when this device can report a heading at all. */
     fun isAvailable(): Boolean {
         val sm = sensorManager
             ?: context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -80,14 +93,15 @@ class HeadingProvider(private val context: Context) {
         }
         sensorManager = sm
 
-        // ROTATION_VECTOR fuses accelerometer + magnetometer (+ gyroscope when
-        // present), which is far steadier than reading the magnetometer alone.
+        // ROTATION_VECTOR fuses accelerometer, magnetometer and gyroscope,
+        // which is far steadier than the magnetometer alone.
         rotationSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         if (rotationSensor == null) {
             Log.e(TAG, "No rotation vector sensor on this device")
             return false
         }
 
+        smoother.reset()
         sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
         listening = true
         return true
@@ -109,63 +123,40 @@ class HeadingProvider(private val context: Context) {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, trimmed)
         }
 
-        // Remap for the current display rotation, otherwise the heading is
-        // wrong by 90 degrees whenever the phone is held in landscape.
-        val (axisX, axisY) = when (displayRotation()) {
-            Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
-            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
-            Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
-            else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
-        }
-        SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remapped)
-        SensorManager.getOrientation(remapped, orientation)
+        val result = computeHeading(rotationMatrix, displayRotationDegrees(), wasFlat)
+        wasFlat = result.source == HeadingSource.SCREEN_UP
+        source = result.source
 
-        val magneticDeg = Math.toDegrees(orientation[0].toDouble())
-        val trueDeg = (magneticDeg + magneticDeclination + 360.0) % 360.0
+        val magnetic = result.degrees ?: return
+        val trueNorth = (magnetic + magneticDeclination + 360.0) % 360.0
+        val smoothed = smoother.next(trueNorth)
 
-        // Smooth on the unit circle, not on the raw angle: averaging degrees
-        // directly makes the needle swing wildly through the 359 -> 0 wrap.
-        val rad = Math.toRadians(trueDeg)
-        val s = kotlin.math.sin(rad)
-        val c = kotlin.math.cos(rad)
-
-        if (!haveSmoothed) {
-            smoothedSin = s
-            smoothedCos = c
-            haveSmoothed = true
-        } else {
-            val alpha = 0.15
-            smoothedSin = smoothedSin * (1 - alpha) + s * alpha
-            smoothedCos = smoothedCos * (1 - alpha) + c * alpha
-        }
-
-        val result = (Math.toDegrees(kotlin.math.atan2(smoothedSin, smoothedCos)) + 360.0) % 360.0
-
-        // Only notify on a meaningful change, to avoid recomposing the UI at
-        // sensor rate on a device we already know runs hot.
+        // Only notify on a meaningful change, so the UI is not recomposed at
+        // sensor rate on a device that already runs hot.
         val previous = headingDegrees
-        headingDegrees = result
-        if (previous == null || abs(shortestDelta(previous, result)) > 0.5) {
-            onHeading?.invoke(result)
+        headingDegrees = smoothed
+        if (previous == null || abs(relativeBearing(previous, smoothed)) > 0.5) {
+            onHeading?.invoke(smoothed)
         }
-    }
-
-    private fun shortestDelta(a: Double, b: Double): Double {
-        var d = (b - a) % 360.0
-        if (d > 180) d -= 360.0
-        if (d <= -180) d += 360.0
-        return d
     }
 
     @Suppress("DEPRECATION")
-    private fun displayRotation(): Int = try {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            context.display?.rotation ?: Surface.ROTATION_0
-        } else {
-            (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)
-                ?.defaultDisplay?.rotation ?: Surface.ROTATION_0
+    private fun displayRotationDegrees(): Int {
+        val rotation = try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                context.display?.rotation ?: Surface.ROTATION_0
+            } else {
+                (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)
+                    ?.defaultDisplay?.rotation ?: Surface.ROTATION_0
+            }
+        } catch (e: Exception) {
+            Surface.ROTATION_0
         }
-    } catch (e: Exception) {
-        Surface.ROTATION_0
+        return when (rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
     }
 }
