@@ -14,7 +14,11 @@ import com.sarab.vision.core.LandmarkPhoto
 import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.core.DemoCampus
+import com.sarab.vision.core.PathNetwork
+import com.sarab.vision.core.Route
+import com.sarab.vision.core.TravelMode
 import com.sarab.vision.core.averageFixes
+import com.sarab.vision.core.routeTo
 import com.sarab.vision.core.bearingDegrees
 import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.core.stepAlongBearing
@@ -56,6 +60,31 @@ class CampusState(private val context: Context) {
         private set
 
     var guidance by mutableStateOf<GuidanceMode>(GuidanceMode.NoFix)
+        private set
+
+    /** How the user is travelling; changes which paths are routable. */
+    var travelMode by mutableStateOf(TravelMode.WALK)
+        private set
+
+    /**
+     * Named `chooseTravelMode` rather than `setTravelMode`: the latter clashes
+     * with the setter Kotlin generates for the `travelMode` property.
+     */
+    fun chooseTravelMode(mode: TravelMode) {
+        if (mode == travelMode) return
+        travelMode = mode
+        // Force a fresh route: the same start and end can yield a very
+        // different path once cars are barred from footpaths.
+        lastRoutedFrom = null
+        recomputeGuidance()
+    }
+
+    /** The drawn campus path network, loaded from storage. */
+    var pathNetwork by mutableStateOf(PathNetwork())
+        private set
+
+    /** Current route to the target, or null when there is nothing to show. */
+    var route by mutableStateOf<Route?>(null)
         private set
 
     /**
@@ -300,8 +329,24 @@ class CampusState(private val context: Context) {
         } else {
             guidanceFor(position, headingDegrees, t, landmarks)
         }
+
+        // Recompute the route only when the user has moved meaningfully.
+        // Re-running A* on every GPS tick and every compass degree would be
+        // wasted work on a phone that already runs hot.
+        val movedEnough = position != null && lastRoutedFrom.let { previous ->
+            previous == null || distanceMeters(previous, position) > 5.0
+        }
+        if (movedEnough || route == null) {
+            lastRoutedFrom = position
+            route = if (position == null || t == null || !position.isValid) null
+            else routeTo(pathNetwork, position, t.position, travelMode)
+        }
+
         onUpdate?.invoke()
     }
+
+    /** Position the current route was computed from. */
+    private var lastRoutedFrom: LatLng? = null
 
     // ---- Survey ---------------------------------------------------------
 

@@ -53,11 +53,13 @@ import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
 import com.sarab.vision.ui.BlockingMessage
+import com.sarab.vision.ui.CompassBar
 import com.sarab.vision.ui.DirectionArrow
 import java.util.EnumSet
 
 private const val TAG = "SarabArNav"
 private const val MIN_CPU_IMAGE_HEIGHT = 720
+private val Muted = Color(0xFF9FB3C8)
 
 /**
  * The main navigation screen: camera first, path on the ground.
@@ -164,26 +166,43 @@ class ArNavActivity : ComponentActivity() {
                 }
             }
 
-            // Top status: what the app is doing and why.
-            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // The compass ribbon: which way am I facing, and where is the
+            // destination relative to that. This is the instrument that makes
+            // a bare camera view navigable.
+            Column(modifier = Modifier.fillMaxWidth()) {
+                CompassBar(
+                    headingDegrees = campus.headingDegrees,
+                    targetBearingDegrees = campus.targetBearing(),
+                    targetDistanceMeters = (campus.guidance as? GuidanceMode.Compass)
+                        ?.distanceMeters
+                        ?: (campus.guidance as? GuidanceMode.ArApproach)?.distanceMeters
+                        ?: 0.0,
+                    targetName = target?.name,
+                    travelMode = campus.travelMode,
+                    onModeChange = { campus.chooseTravelMode(it) }
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 14.dp)
+                ) {
                     Text(
                         "رجوع",
                         color = Color(0xFF4FC3F7),
-                        fontSize = 14.sp,
-                        modifier = Modifier
-                            .background(Color(0xE6121A24), RoundedCornerShape(10.dp))
-                            .clickable { finish() }
-                            .padding(horizontal = 14.dp, vertical = 9.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = statusText(),
-                        color = Color.White,
                         fontSize = 13.sp,
                         modifier = Modifier
-                            .background(Color(0xE6121A24), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 14.dp, vertical = 9.dp)
+                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .clickable { finish() }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = statusText(),
+                        color = Muted,
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 }
             }
