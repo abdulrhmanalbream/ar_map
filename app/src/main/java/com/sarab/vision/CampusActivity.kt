@@ -8,7 +8,9 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.sarab.vision.data.ImageImporter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -184,6 +186,8 @@ class CampusActivity : ComponentActivity() {
                             samplesCollected = campus.surveySampleCount,
                             capturedLandmarks = campus.landmarks,
                             pendingPhotoCount = campus.pendingPhotoCount,
+                            pendingPhotos = campus.pendingPhotoList,
+                            photoDir = campus.photoDir,
                             onCapturePhoto = { viewpoint -> capturePhoto(viewpoint) },
                             onSaveLandmark = { name, category, detail ->
                                 saveLandmark(name, category, detail)
@@ -245,15 +249,52 @@ class CampusActivity : ComponentActivity() {
         )
     }
 
-    private fun capturePhoto(viewpoint: Viewpoint) {
-        // Photo capture needs the AR camera session, which lives in
-        // ArActivity. Until that hand-off is wired, tell the user plainly
-        // rather than silently doing nothing.
+    /**
+     * Which viewpoint the pending gallery pick is for.
+     *
+     * The picker result arrives asynchronously with no way to carry extras,
+     * so the intent has to be remembered across the launch.
+     */
+    private var pendingViewpoint: Viewpoint = Viewpoint.ENTRANCE
+
+    /**
+     * Gallery picker for landmark photos.
+     *
+     * Uses the system photo picker rather than a storage permission: it needs
+     * no permission at all, grants access to exactly the chosen image, and is
+     * the route most users expect. It also means the campus photos already on
+     * the phone can be attached directly, instead of requiring a fresh visit
+     * to re-shoot everything.
+     */
+    private val photoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(6)
+    ) { uris ->
+        if (uris.isEmpty()) return@registerForActivityResult
+        var imported = 0
+        uris.forEach { uri ->
+            val name = ImageImporter.importFromGallery(
+                context = this,
+                uri = uri,
+                dir = campus.photoDir,
+                baseName = "img-${System.currentTimeMillis()}-$imported"
+            )
+            if (name != null) {
+                campus.addPendingPhoto(name, pendingViewpoint)
+                imported++
+            }
+        }
         Toast.makeText(
             this,
-            "التقاط الصور يتطلب فتح الكاميرا — قيد الربط",
+            if (imported > 0) "تمت إضافة $imported صورة" else "تعذّر قراءة الصور",
             Toast.LENGTH_SHORT
         ).show()
+    }
+
+    private fun capturePhoto(viewpoint: Viewpoint) {
+        pendingViewpoint = viewpoint
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
     }
 
     private fun saveLandmark(name: String, category: LandmarkCategory, detail: String) {

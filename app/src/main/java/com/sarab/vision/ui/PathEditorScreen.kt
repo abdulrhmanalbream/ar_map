@@ -87,7 +87,10 @@ fun PathEditorScreen(
             pathNetwork = network,
             userPosition = userFix?.position,
             styleKind = MapStyles.Kind.SATELLITE,
-            focusOn = null,
+            // Start on the user rather than wherever the map defaults to:
+            // paths are drawn where you are standing, and hunting for your
+            // own campus across a world map is not a reasonable first step.
+            focusOn = if (network.isEmpty) userFix?.position else null,
             modifier = Modifier.fillMaxSize(),
             onMapTap = { tapped ->
                 // Snap to a nearby node so junctions actually join up. Two

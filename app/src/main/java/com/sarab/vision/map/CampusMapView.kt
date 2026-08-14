@@ -48,6 +48,15 @@ private const val LYR_LANDMARKS = "landmarks-circle"
 private const val LYR_USER = "user-dot"
 
 /**
+ * Where to point the camera when there is nothing else to frame.
+ *
+ * Without a fallback MapLibre starts at 0,0 zoom 0 and shows the entire
+ * planet, which reads as a broken map. Medina is a sane default for this
+ * campus and is immediately replaced by the real position once GPS arrives.
+ */
+private val DEFAULT_CENTRE = LatLng(24.4672, 39.6111)
+
+/**
  * The campus map, rendered by MapLibre.
  *
  * Replaces the hand-drawn Canvas map, which could never look like a real map
@@ -328,7 +337,16 @@ private fun frame(
         }.filter { it.isValid }
 
         when {
-            points.isEmpty() -> Unit
+            // Nothing to frame: the camera would otherwise sit at 0,0 zoom 0
+            // and show the whole planet, which is useless and looks broken.
+            // Fall back to the user's position, or the campus region.
+            points.isEmpty() -> {
+                val fallback = userPosition?.takeIf { it.isValid } ?: DEFAULT_CENTRE
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(MapLatLng(fallback.latitude, fallback.longitude))
+                    .zoom(16.0)
+                    .build()
+            }
             points.size == 1 -> {
                 map.cameraPosition = CameraPosition.Builder()
                     .target(MapLatLng(points[0].latitude, points[0].longitude))

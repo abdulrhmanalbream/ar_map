@@ -139,6 +139,15 @@ class CampusState(private val context: Context) {
     var pendingPhotoCount by mutableStateOf(0)
         private set
 
+    /**
+     * Snapshot of the pending photos, for the UI to render thumbnails from.
+     *
+     * A copy rather than the mutable list: Compose cannot observe mutations
+     * to a plain list, so handing it out directly would show a stale gallery.
+     */
+    var pendingPhotoList by mutableStateOf<List<LandmarkPhoto>>(emptyList())
+        private set
+
     /** Set when two captured landmarks are too close for GPS to separate. */
     var ambiguityWarning by mutableStateOf<String?>(null)
 
@@ -406,6 +415,7 @@ class CampusState(private val context: Context) {
         surveySampleCount = 0
         pendingPhotos.clear()
         pendingPhotoCount = 0
+        pendingPhotoList = emptyList()
     }
 
     fun addPendingPhoto(fileName: String, viewpoint: Viewpoint) {
@@ -429,6 +439,7 @@ class CampusState(private val context: Context) {
             )
         )
         pendingPhotoCount = pendingPhotos.size
+        pendingPhotoList = pendingPhotos.toList()
     }
 
     private fun surveyAveragePosition(): LatLng? =
