@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -82,6 +85,9 @@ fun LandmarkListScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Bg)
+            // Without these the title sits under the system clock and the
+            // bottom buttons under the gesture bar.
+            .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(16.dp))

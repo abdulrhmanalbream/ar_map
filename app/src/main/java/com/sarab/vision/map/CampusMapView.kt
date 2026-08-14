@@ -5,7 +5,9 @@ import android.graphics.Color as AndroidColor
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -78,10 +80,34 @@ fun CampusMapView(
     val mapView = remember { MapView(context) }
     val mapRef = remember { arrayOfNulls<MapLibreMap>(1) }
 
+    // AndroidView's `factory` runs ONCE. A tap handler registered there would
+    // capture the very first value of every state it closes over and keep it
+    // forever -- which made the path editor silently useless: every tap saw
+    // an empty network, so nothing ever accumulated. rememberUpdatedState
+    // keeps the handler pointing at the current lambda.
+    val currentOnMapTap by rememberUpdatedState(onMapTap)
+    val currentStyleKind by rememberUpdatedState(styleKind)
+
+    /** Which basemap the loaded style represents, so switches are detected. */
+    val loadedStyle = remember { arrayOfNulls<MapStyles.Kind>(1) }
+
+    /** Whether the camera has been auto-framed; it must only happen once. */
+    val framed = remember { booleanArrayOf(false) }
+
+    /** Guards against calling MapView.onCreate twice. */
+    val created = remember { booleanArrayOf(false) }
+
     DisposableEffect(lifecycleOwner) {
+        // The activity is usually already CREATED by the time this composes,
+        // so ON_CREATE may never fire; create eagerly and guard against a
+        // second call.
+        if (!created[0]) {
+            mapView.onCreate(null)
+            created[0] = true
+        }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_CREATE -> mapView.onCreate(null)
+                Lifecycle.Event.ON_CREATE -> Unit
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
@@ -100,7 +126,8 @@ fun CampusMapView(
     AndroidView(
         factory = {
             mapView.also { view ->
-                view.onCreate(null)
+                // onCreate is driven by the lifecycle observer above; calling
+                // it again here would initialise the GL surface twice.
                 view.getMapAsync { map ->
                     mapRef[0] = map
                     map.uiSettings.isRotateGesturesEnabled = true
@@ -108,29 +135,53 @@ fun CampusMapView(
                     map.uiSettings.isAttributionEnabled = true
                     map.uiSettings.isLogoEnabled = false
 
-                    map.setStyle(Style.Builder().fromJson(MapStyles.styleFor(styleKind))) { style ->
+                    map.setStyle(
+                        Style.Builder().fromJson(MapStyles.styleFor(currentStyleKind))
+                    ) { style ->
                         installLayers(style)
-                        refresh(map, style, landmarks, route, pathNetwork, userPosition)
-                        frame(map, landmarks, userPosition, focusOn)
+                        loadedStyle[0] = currentStyleKind
                     }
 
-                    onMapTap?.let { handler ->
-                        map.addOnMapClickListener { point ->
-                            handler(LatLng(point.latitude, point.longitude))
-                            true
-                        }
+                    // Reads through rememberUpdatedState, so every tap sees
+                    // the CURRENT handler rather than the one that existed
+                    // when the view was first created.
+                    map.addOnMapClickListener { point ->
+                        currentOnMapTap?.invoke(LatLng(point.latitude, point.longitude))
+                        true
                     }
                 }
             }
         },
         update = {
             val map = mapRef[0] ?: return@AndroidView
+
+            // Switching basemap needs a full style reload, and the layers
+            // must be reinstalled afterwards because a new style starts empty.
+            if (loadedStyle[0] != styleKind) {
+                map.setStyle(Style.Builder().fromJson(MapStyles.styleFor(styleKind))) { style ->
+                    installLayers(style)
+                    loadedStyle[0] = styleKind
+                    refresh(map, style, landmarks, route, pathNetwork, userPosition)
+                }
+                return@AndroidView
+            }
+
             val style = map.style ?: return@AndroidView
             refresh(map, style, landmarks, route, pathNetwork, userPosition)
-            focusOn?.let {
-                map.animateCamera(
-                    CameraUpdateFactory.newLatLngZoom(MapLatLng(it.latitude, it.longitude), 17.0)
-                )
+
+            if (!framed[0]) {
+                frame(map, landmarks, userPosition, focusOn)
+                // Only auto-frame once: re-framing on every update would fight
+                // the user every time they panned.
+                if (landmarks.isNotEmpty() || userPosition != null) framed[0] = true
+            } else {
+                focusOn?.let {
+                    map.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            MapLatLng(it.latitude, it.longitude), 17.0
+                        )
+                    )
+                }
             }
         },
         modifier = modifier

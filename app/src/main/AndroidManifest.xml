@@ -35,6 +35,20 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!--
+      INTERNET, for map tiles only.
+
+      This was deliberately absent while the app was purely offline, and its
+      absence is why the map rendered black: MapLibre cannot fetch a single
+      tile without it, silently.
+
+      Navigation itself remains fully offline - GPS, compass, the path network
+      and routing never touch the network. Tiles are downloaded once and
+      cached, after which the map works with no connection either.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- GPS hardware is required for outdoor navigation. -->
     <uses-feature
         android:name="android.hardware.location.gps"

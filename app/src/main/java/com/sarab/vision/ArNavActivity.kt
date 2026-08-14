@@ -7,6 +7,7 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -16,12 +17,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -148,6 +153,27 @@ class ArNavActivity : ComponentActivity() {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
 
+        // Back must not dump the user straight out of the app.
+        //
+        // The camera is the launcher screen, so the default behaviour was to
+        // exit on the first press regardless of what was open. Now back
+        // closes whatever is showing first, and only leaves once there is
+        // genuinely nothing left to dismiss.
+        onBackPressedDispatcher.addCallback(this) {
+            when {
+                pickerVisible -> pickerVisible = false
+                calibration.step != CalibrationStep.DONE ->
+                    calibration = CalibrationState(CalibrationStep.DONE, 1f, "", "")
+                campus.target != null -> {
+                    // Clear the destination rather than quitting: the user is
+                    // far more likely to want a different one.
+                    campus.selectTarget(null)
+                    pickerVisible = true
+                }
+                else -> finish()
+            }
+        }
+
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1B2A))) {
@@ -226,7 +252,15 @@ class ArNavActivity : ComponentActivity() {
             // The compass ribbon: which way am I facing, and where is the
             // destination relative to that. This is the instrument that makes
             // a bare camera view navigable.
-            Column(modifier = Modifier.fillMaxWidth()) {
+            //
+            // statusBars padding is essential: the camera fills the screen
+            // edge to edge, so without it the ribbon renders UNDERNEATH the
+            // system clock and battery icons.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+            ) {
                 CompassBar(
                     headingDegrees = campus.headingDegrees,
                     targetBearingDegrees = campus.targetBearing(),
@@ -278,6 +312,9 @@ class ArNavActivity : ComponentActivity() {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        // navigationBars padding keeps the card clear of the
+                        // gesture bar, which otherwise swallows its buttons.
+                        .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(14.dp)
                         .background(Color(0xE6121A24), RoundedCornerShape(18.dp))
                         .padding(16.dp)
