@@ -25,7 +25,7 @@ import com.sarab.vision.core.LandmarkCategory
 import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.BlockingMessage
-import com.sarab.vision.ui.CampusMapScreen
+import com.sarab.vision.ui.MapScreen
 import com.sarab.vision.ui.DemoControls
 import com.sarab.vision.ui.LandmarkListScreen
 import com.sarab.vision.ui.SurveyScreen
@@ -161,13 +161,20 @@ class CampusActivity : ComponentActivity() {
                             )
                         }
 
-                        AppMode.MAP -> CampusMapScreen(
+                        AppMode.MAP -> MapScreen(
                             landmarks = campus.landmarks,
+                            route = campus.route,
+                            pathNetwork = campus.pathNetwork,
                             userFix = campus.fix,
-                            headingDegrees = campus.headingDegrees,
-                            selectedId = campus.target?.id,
-                            onSelect = { campus.selectTarget(it) },
-                            onClose = { campus.mode = AppMode.LIST }
+                            travelMode = campus.travelMode,
+                            selectedName = campus.target?.name,
+                            onModeChange = { campus.chooseTravelMode(it) },
+                            onClose = { campus.mode = AppMode.LIST },
+                            onStartAr = {
+                                startActivity(
+                                    Intent(this@CampusActivity, ArNavActivity::class.java)
+                                )
+                            }
                         )
 
                         AppMode.SURVEY -> SurveyScreen(
@@ -210,33 +217,21 @@ class CampusActivity : ComponentActivity() {
             campus.mode = AppMode.LIST
             return
         }
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                CampusMapScreen(
-                    landmarks = campus.landmarks,
-                    userFix = campus.fix,
-                    headingDegrees = campus.headingDegrees,
-                    selectedId = target.id,
-                    onSelect = { campus.selectTarget(it) },
-                    onClose = { campus.mode = AppMode.LIST }
-                )
+        // Navigation itself lives in the camera activity now, so reaching
+        // here means the map is what is actually wanted.
+        MapScreen(
+            landmarks = campus.landmarks,
+            route = campus.route,
+            pathNetwork = campus.pathNetwork,
+            userFix = campus.fix,
+            travelMode = campus.travelMode,
+            selectedName = target.name,
+            onModeChange = { campus.chooseTravelMode(it) },
+            onClose = { campus.mode = AppMode.LIST },
+            onStartAr = {
+                startActivity(Intent(this@CampusActivity, ArNavActivity::class.java))
             }
-            // Controls live here too: this is the screen where the arrow,
-            // the distance countdown and the mode changes are actually
-            // visible, so simulating movement belongs alongside them.
-            if (campus.demoActive) {
-                DemoControls(
-                    active = true,
-                    guidance = campus.guidance,
-                    targetName = target.name,
-                    onStart = { campus.startDemo() },
-                    onStop = { campus.stopDemo() },
-                    onWalk = { campus.demoWalk(it) },
-                    onTeleportToTarget = { campus.demoTeleportToTarget() },
-                    onTurn = { campus.demoTurn(it) }
-                )
-            }
-        }
+        )
     }
 
     private fun capturePhoto(viewpoint: Viewpoint) {

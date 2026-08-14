@@ -17,11 +17,8 @@ android {
         versionCode = 2
         versionName = "2.0-campus"
 
-        // Only ship the ABIs ARCore actually supports. This keeps the APK
-        // small, which matters on the mid-range devices we target.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
+        // NOTE: no ndk.abiFilters here. The ABI restriction lives in the
+        // `splits` block below, and setting both is a configuration error.
     }
 
     buildTypes {
@@ -51,6 +48,21 @@ android {
         compose = true
     }
 
+    // Split by ABI.
+    //
+    // MapLibre's native library is ~12.5MB PER ABI, so shipping both in one
+    // APK cost 36MB when only one is ever used. Splitting means a device
+    // downloads roughly 23MB instead, and both architectures stay supported.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            // No universal APK: it would defeat the point by bundling both.
+            isUniversalApk = false
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -77,6 +89,13 @@ dependencies {
     // Sceneform is archived and its Filament dependency adds ~10MB plus
     // meaningful GPU cost. See docs/ADR-001.
     implementation("com.google.ar:core:1.45.0")
+
+    // MapLibre: the same engine the reference web map uses, so the map can
+    // reach that quality bar instead of the hand-drawn Canvas it replaces.
+    // Crucially it ships an OfflineManager that downloads a region for use
+    // with no network -- which the web map has no equivalent of.
+    // Costs roughly 6MB of APK; worth it for a real map.
+    implementation("org.maplibre.gl:android-sdk:11.13.5")
 
     testImplementation("junit:junit:4.13.2")
 }

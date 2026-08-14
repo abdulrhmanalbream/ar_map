@@ -77,16 +77,29 @@ try {
     }
 
     $variant = if ($Release) { "release" } else { "debug" }
-    $apk = Get-ChildItem -Recurse -Path (Join-Path $BuildDir "app\build\outputs\apk\$variant") -Filter "*.apk" |
-           Select-Object -First 1
+    $allApks = Get-ChildItem -Recurse -Path (Join-Path $BuildDir "app\build\outputs\apk\$variant") -Filter "*.apk"
+
+    # The build is split by ABI (MapLibre's native lib is ~12.5MB each), so
+    # pick the one matching the connected phone rather than guessing.
+    $adbPath = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+    $deviceAbi = ""
+    if (Test-Path $adbPath) {
+        $deviceAbi = (& $adbPath shell getprop ro.product.cpu.abi 2>$null | Out-String).Trim()
+    }
+    if (-not $deviceAbi) { $deviceAbi = "arm64-v8a" }
+
+    $apk = $allApks | Where-Object { $_.Name -like "*$deviceAbi*" } | Select-Object -First 1
+    if (-not $apk) { $apk = $allApks | Where-Object { $_.Name -like "*arm64*" } | Select-Object -First 1 }
+    if (-not $apk) { $apk = $allApks | Select-Object -First 1 }
 
     if (-not $apk) { throw "Build reported success but no APK was produced." }
+    Write-Host "Selected $($apk.Name) for ABI $deviceAbi" -ForegroundColor DarkGray
 
     $outDir = Join-Path $SourceDir "output"
     New-Item -ItemType Directory -Force $outDir | Out-Null
-    Copy-Item $apk.FullName $outDir -Force
-
-    $finalApk = Join-Path $outDir $apk.Name
+    # Always land on the same filename so install commands stay stable.
+    $finalApk = Join-Path $outDir "app-debug.apk"
+    Copy-Item $apk.FullName $finalApk -Force
     $sizeMb = [math]::Round((Get-Item $finalApk).Length / 1MB, 2)
     Write-Host ""
     Write-Host "APK ready: $finalApk ($sizeMb MB)" -ForegroundColor Green
