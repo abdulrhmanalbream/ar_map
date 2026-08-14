@@ -48,6 +48,10 @@ class HeadingProvider(private val context: Context) {
     var needsCalibration: Boolean = false
         private set
 
+    /** Camera tilt from level: 0 = horizon, 1 = straight up or down. */
+    var cameraTilt: Float = 1f
+        private set
+
     /** Set from the GPS fix so we can convert magnetic -> true north. */
     var magneticDeclination: Float = 0f
 
@@ -126,6 +130,7 @@ class HeadingProvider(private val context: Context) {
         val result = computeHeading(rotationMatrix, displayRotationDegrees(), wasFlat)
         wasFlat = result.source == HeadingSource.SCREEN_UP
         source = result.source
+        cameraTilt = result.tilt
 
         val magnetic = result.degrees ?: return
         val trueNorth = (magnetic + magneticDeclination + 360.0) % 360.0

@@ -48,7 +48,13 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.UnavailableException
 import com.sarab.vision.ar.CampusArRenderer
 import com.sarab.vision.ar.CampusArState
+import com.sarab.vision.core.CalibrationInput
+import com.sarab.vision.core.CalibrationState
+import com.sarab.vision.core.CalibrationStep
 import com.sarab.vision.core.GuidanceMode
+import com.sarab.vision.core.SweepTracker
+import com.sarab.vision.core.nextCalibrationState
+import com.sarab.vision.ui.CalibrationOverlay
 import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
@@ -93,6 +99,19 @@ class ArNavActivity : ComponentActivity() {
     /** The destination sheet, shown over the camera. */
     private var pickerVisible by mutableStateOf(false)
 
+    // ---- Guided start-up -------------------------------------------------
+
+    private var calibration by mutableStateOf(
+        CalibrationState(
+            CalibrationStep.WAVE,
+            0f,
+            "حرّك الجوال يميناً ويساراً",
+            "امسك الجوال مائلاً قليلاً وحرّكه ببطء يميناً ويساراً لثوانٍ."
+        )
+    )
+    private val sweep = SweepTracker()
+    private var stepStartedAt = 0L
+
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -113,7 +132,12 @@ class ArNavActivity : ComponentActivity() {
         }
 
         renderer = CampusArRenderer(onStateChanged = { state ->
-            runOnUiThread { arState = state }
+            runOnUiThread {
+                arState = state
+                // The renderer ticks every frame, so this is where the
+                // start-up sequence gets its live readings.
+                updateCalibration()
+            }
         })
 
         surfaceView = GLSurfaceView(this).apply {
@@ -157,6 +181,17 @@ class ArNavActivity : ComponentActivity() {
 
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(factory = { surfaceView }, modifier = Modifier.fillMaxSize())
+
+            // The guided start-up. Sits above everything: until ARCore has
+            // tracking there is nothing useful behind it, and a live-looking
+            // camera invites the user to stand still, which is exactly what
+            // stops tracking from ever starting.
+            CalibrationOverlay(
+                state = calibration,
+                onSkip = {
+                    calibration = CalibrationState(CalibrationStep.DONE, 1f, "", "")
+                }
+            )
 
             // Destination picker, over the camera. The camera is the app, so
             // choosing where to go must not mean leaving it.
@@ -328,6 +363,40 @@ class ArNavActivity : ComponentActivity() {
             if (isEmpty()) append("جاهز")
         }
         is CampusArState.Error -> (arState as CampusArState.Error).message
+    }
+
+    /**
+     * Advances the start-up sequence from live sensor readings.
+     *
+     * Driven by measured readiness rather than a timer: dismissing the hint
+     * before ARCore has tracking leaves the user staring at a camera that
+     * cannot draw anything, and they blame the app rather than the pose.
+     */
+    private fun updateCalibration() {
+        if (calibration.step == CalibrationStep.DONE) return
+
+        val now = System.currentTimeMillis()
+        if (stepStartedAt == 0L) stepStartedAt = now
+
+        campus.headingDegrees?.let { sweep.update(it) }
+
+        val input = CalibrationInput(
+            tracking = arState is CampusArState.Navigating ||
+                arState is CampusArState.WaitingForGps,
+            compassReliable = !campus.compassNeedsCalibration,
+            tilt = campus.cameraTilt,
+            movedDegrees = sweep.totalDegrees,
+            elapsedMs = now - stepStartedAt
+        )
+
+        val previousStep = calibration.step
+        calibration = nextCalibrationState(previousStep, input)
+
+        if (calibration.step != previousStep) {
+            // Each step measures its own elapsed time and sweep.
+            stepStartedAt = now
+            sweep.reset()
+        }
     }
 
     /** Pushes the latest GPS-derived aim into the renderer. */

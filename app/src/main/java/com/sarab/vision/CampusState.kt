@@ -66,6 +66,15 @@ class CampusState(private val context: Context) {
     var compassNeedsCalibration by mutableStateOf(false)
         private set
 
+    /**
+     * Camera tilt from level: 0 = looking at the horizon, 1 = straight down.
+     *
+     * Drives the start-up sequence, which needs to know when the phone has
+     * actually been raised into the navigating pose.
+     */
+    var cameraTilt by mutableStateOf(1f)
+        private set
+
     var target by mutableStateOf<Landmark?>(null)
         private set
 
@@ -163,6 +172,9 @@ class CampusState(private val context: Context) {
                 compassNeedsCalibration = heading.needsCalibration
                 recomputeGuidance()
             }
+            // Tilt is a property of how the phone is physically held, so it
+            // stays live even while demo mode owns the heading.
+            cameraTilt = heading.cameraTilt
         }
 
         location.onFix = { f ->
