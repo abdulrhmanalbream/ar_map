@@ -64,9 +64,12 @@ import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
 import com.sarab.vision.ui.BlockingMessage
+import androidx.compose.runtime.LaunchedEffect
 import com.sarab.vision.ui.CompassBar
 import com.sarab.vision.ui.DestinationPicker
 import com.sarab.vision.ui.DirectionArrow
+import com.sarab.vision.ui.StartTourButton
+import com.sarab.vision.ui.TourOverlay
 import java.util.EnumSet
 
 private const val TAG = "SarabArNav"
@@ -207,6 +210,37 @@ class ArNavActivity : ComponentActivity() {
 
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(factory = { surfaceView }, modifier = Modifier.fillMaxSize())
+
+            // The scripted demo drives itself from a timer, so nothing on
+            // screen depends on a sensor or a connection while it runs.
+            LaunchedEffect(campus.tour.running) {
+                var last = System.currentTimeMillis()
+                while (campus.tour.running) {
+                    kotlinx.coroutines.delay(60)
+                    val now = System.currentTimeMillis()
+                    campus.tickTour(now - last)
+                    last = now
+                    syncRenderer()
+                }
+            }
+
+            TourOverlay(
+                tour = campus.tour,
+                onStop = { campus.stopTour() },
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+
+            if (!campus.tour.running && !pickerVisible &&
+                calibration.step == CalibrationStep.DONE
+            ) {
+                StartTourButton(
+                    visible = true,
+                    onStart = { campus.startTour() },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 150.dp)
+                )
+            }
 
             // The guided start-up. Sits above everything: until ARCore has
             // tracking there is nothing useful behind it, and a live-looking

@@ -15,6 +15,11 @@ import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.core.DemoCampus
 import com.sarab.vision.core.PathNetwork
+import com.sarab.vision.core.TourAction
+import com.sarab.vision.core.TourState
+import com.sarab.vision.core.advanceTour
+import com.sarab.vision.core.tourTurnDegrees
+import com.sarab.vision.core.tourWalkDistance
 import com.sarab.vision.core.Route
 import com.sarab.vision.core.TravelMode
 import com.sarab.vision.core.averageFixes
@@ -314,6 +319,76 @@ class CampusState(private val context: Context) {
         val t = target?.position ?: return
         simulatedPosition = t
         publishSimulatedFix()
+    }
+
+    // ---- Presentation tour ----------------------------------------------
+
+    var tour by mutableStateOf(TourState(0, 0, running = false))
+        private set
+
+    /**
+     * Starts the scripted demo.
+     *
+     * Forces demo mode on first, so the tour never depends on a real GPS fix
+     * or a network — the entire point is that it cannot fail in a meeting
+     * room.
+     */
+    fun startTour() {
+        if (!demoActive) startDemo()
+        tour = TourState(0, 0, running = true)
+        applyTourStep()
+    }
+
+    fun stopTour() {
+        tour = tour.copy(running = false)
+    }
+
+    /** Called on a timer; drives the whole scripted sequence. */
+    fun tickTour(deltaMs: Long) {
+        if (!tour.running) return
+
+        val previousStep = tour.stepIndex
+        tour = advanceTour(tour, deltaMs)
+
+        if (tour.stepIndex != previousStep) {
+            applyTourStep()
+            return
+        }
+
+        // Continuous actions run every tick rather than once per beat.
+        val walk = tourWalkDistance(tour, deltaMs)
+        if (walk > 0) demoWalk(walk)
+
+        val turn = tourTurnDegrees(tour, deltaMs)
+        if (turn != 0.0) demoTurn(turn)
+    }
+
+    /** Applies the one-shot action at the start of a beat. */
+    private fun applyTourStep() {
+        when (val action = tour.step?.action) {
+            is TourAction.SelectTarget -> {
+                landmarks.firstOrNull { it.name.contains(action.nameFragment) }
+                    ?.let { selectTarget(it) }
+            }
+
+            is TourAction.JumpNear -> {
+                // Place the walker a set distance short of the target, so the
+                // beat lands on exactly the state being demonstrated.
+                val target = target?.position ?: return
+                val from = simulatedPosition ?: return
+                val remaining = distanceMeters(from, target)
+                val toTravel = (remaining - action.metresShort).coerceAtLeast(0.0)
+                simulatedPosition = stepTowards(from, target, toTravel)
+                publishSimulatedFix()
+            }
+
+            is TourAction.SetMode -> chooseTravelMode(action.mode)
+
+            is TourAction.ShowMap -> mode = AppMode.MAP
+            is TourAction.ShowCamera -> mode = AppMode.NAVIGATE
+
+            else -> Unit
+        }
     }
 
     /** Simulated turning, so the arrow can be checked without moving. */
