@@ -37,6 +37,15 @@ import com.sarab.vision.loc.LocationProvider
 
 private const val TAG = "SarabCampus"
 
+/**
+ * Accuracy quoted for a point dropped by hand on satellite imagery.
+ *
+ * Esri's imagery is georeferenced to a few metres, and a careful tap adds a
+ * couple more. It is deliberately not better than a good GPS fix: a manual
+ * placement is a reasonable estimate, not a survey.
+ */
+private const val MANUAL_PLACEMENT_ACCURACY_M = 8f
+
 /** Which screen the user is on. */
 enum class AppMode { NAVIGATE, LIST, MAP, SURVEY, PATHS }
 
@@ -155,6 +164,38 @@ class CampusState(private val context: Context) {
 
     /** Set when two captured landmarks are too close for GPS to separate. */
     var ambiguityWarning by mutableStateOf<String?>(null)
+
+    /**
+     * Hand-picked position for the landmark being surveyed.
+     *
+     * Survey mode used to demand a live fix better than 20m before it would
+     * save anything. Indoors that fix never arrives, so the screen sat on
+     * "waiting for GPS" forever and the app could not record a single place
+     * unless the surveyor was physically standing outside the building. This
+     * is the way out: pick the point on satellite imagery, or paste a Google
+     * Maps link, and save.
+     *
+     * When set it overrides the averaged GPS samples entirely.
+     */
+    var manualPosition by mutableStateOf<LatLng?>(null)
+        private set
+
+    /** True while the full-screen map picker is showing. */
+    var pickingLocation by mutableStateOf(false)
+
+    /**
+     * The fix the survey screen should trust.
+     *
+     * Null while the demo is running. The demo publishes a simulated fix with
+     * a flattering 5m accuracy, and showing that on a screen whose entire job
+     * is recording real coordinates would invite someone to save a landmark at
+     * a position the phone never measured.
+     */
+    val surveyFix: GpsFix? get() = if (demoActive) null else fix
+
+    fun chooseManualPosition(position: LatLng?) {
+        manualPosition = position?.takeIf { it.isValid }
+    }
 
     // ---- Demo mode ------------------------------------------------------
 
@@ -491,6 +532,8 @@ class CampusState(private val context: Context) {
         pendingPhotos.clear()
         pendingPhotoCount = 0
         pendingPhotoList = emptyList()
+        manualPosition = null
+        pickingLocation = false
     }
 
     fun addPendingPhoto(fileName: String, viewpoint: Viewpoint) {
@@ -517,8 +560,15 @@ class CampusState(private val context: Context) {
         pendingPhotoList = pendingPhotos.toList()
     }
 
+    /**
+     * The position the landmark will be saved at.
+     *
+     * A hand-picked point wins outright: it was chosen deliberately on the
+     * imagery, whereas the GPS samples may be from wherever the phone happened
+     * to be when the picker was opened.
+     */
     private fun surveyAveragePosition(): LatLng? =
-        averageFixes(surveySamples) ?: fix?.position
+        manualPosition ?: averageFixes(surveySamples) ?: fix?.position
 
     /**
      * Saves the landmark being surveyed.
@@ -532,12 +582,22 @@ class CampusState(private val context: Context) {
         // the fake campus and then wiped when demo mode restores its backup.
         if (demoActive) stopDemo()
 
+        val manual = manualPosition
         val position = surveyAveragePosition() ?: return false
         if (!position.isValid) return false
 
-        val bestAccuracy = surveySamples.minByOrNull { it.accuracyMeters }?.accuracyMeters
-            ?: fix?.accuracyMeters
-            ?: return false
+        // A hand-placed point has no measured accuracy, so it is quoted at the
+        // realistic limit of dropping a pin on satellite imagery rather than
+        // borrowing whatever the GPS happened to read somewhere else. Refusing
+        // to save without a fix is what made the whole screen unusable, so
+        // that is no longer a failure -- it is recorded honestly instead.
+        val bestAccuracy = if (manual != null) {
+            MANUAL_PLACEMENT_ACCURACY_M
+        } else {
+            surveySamples.minByOrNull { it.accuracyMeters }?.accuracyMeters
+                ?: fix?.accuracyMeters
+                ?: return false
+        }
 
         val landmark = Landmark(
             id = "lm-${System.currentTimeMillis()}",
@@ -546,7 +606,8 @@ class CampusState(private val context: Context) {
             position = position,
             detail = detail,
             photos = pendingPhotos.toList(),
-            capturedAccuracyM = bestAccuracy
+            capturedAccuracyM = bestAccuracy,
+            placedManually = manual != null
         )
 
         landmarks.clear()

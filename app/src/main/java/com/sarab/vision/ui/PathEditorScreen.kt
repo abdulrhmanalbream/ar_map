@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sarab.vision.core.GeoBounds
 import com.sarab.vision.core.GpsFix
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.LatLng
@@ -39,7 +41,12 @@ import com.sarab.vision.core.PathEdge
 import com.sarab.vision.core.PathNetwork
 import com.sarab.vision.core.PathNode
 import com.sarab.vision.core.distanceMeters
+import com.sarab.vision.core.mergeNetworks
+import com.sarab.vision.data.OverpassClient
+import com.sarab.vision.data.OverpassResult
 import com.sarab.vision.map.CampusMapView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.sarab.vision.map.MapStyles
 
 private val Panel = Color(0xE6121A24)
@@ -80,6 +87,54 @@ fun PathEditorScreen(
     var allowsCar by remember { mutableStateOf(false) }
     var hasStairs by remember { mutableStateOf(false) }
 
+    // What the map is currently showing, which is the area an import covers.
+    var visibleBounds by remember { mutableStateOf<GeoBounds?>(null) }
+    var importing by remember { mutableStateOf(false) }
+    var importMessage by remember { mutableStateOf<String?>(null) }
+    var importRequested by remember { mutableStateOf(false) }
+
+    // The fetch is blocking, so it runs off the main thread. Keyed on a
+    // request flag rather than launched from the click handler, so a
+    // recomposition mid-flight cannot start a second download.
+    LaunchedEffect(importRequested) {
+        if (!importRequested) return@LaunchedEffect
+        val bounds = visibleBounds
+        if (bounds == null) {
+            importMessage = "حرّك الخريطة أولاً"
+            importRequested = false
+            return@LaunchedEffect
+        }
+
+        importing = true
+        importMessage = "جاري جلب الطرق من OpenStreetMap…"
+        val result = withContext(Dispatchers.IO) {
+            OverpassClient.fetch(
+                south = bounds.minLat,
+                west = bounds.minLon,
+                north = bounds.maxLat,
+                east = bounds.maxLon
+            )
+        }
+        importing = false
+        importRequested = false
+
+        when (result) {
+            is OverpassResult.Success -> {
+                // Merge rather than replace: anything already drawn by hand
+                // was drawn by someone who stood there.
+                val merged = mergeNetworks(network, result.network)
+                val added = merged.edges.size - network.edges.size
+                onNetworkChange(merged)
+                activeNodeId = null
+                // ODbL requires attribution wherever the data is shown.
+                importMessage = "تمت إضافة $added مسار من ${result.wayCount} طريق · " +
+                    "بيانات الطرق © مساهمو OpenStreetMap"
+            }
+            is OverpassResult.Empty -> importMessage = result.message
+            is OverpassResult.Failed -> importMessage = result.message
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B1520))) {
         CampusMapView(
             landmarks = landmarks,
@@ -92,6 +147,7 @@ fun PathEditorScreen(
             // own campus across a world map is not a reasonable first step.
             focusOn = if (network.isEmpty) userFix?.position else null,
             modifier = Modifier.fillMaxSize(),
+            onVisibleBoundsChanged = { visibleBounds = it },
             onMapTap = { tapped ->
                 // Snap to a nearby node so junctions actually join up. Two
                 // lines that merely cross on screen are not connected in the
@@ -216,6 +272,44 @@ fun PathEditorScreen(
                 Modifier.fillMaxWidth(),
                 activeColour = Amber
             ) { hasStairs = !hasStairs }
+
+            Spacer(Modifier.height(14.dp))
+
+            // ---- Import from OpenStreetMap ---------------------------------
+            //
+            // Tracing a whole campus by hand is hours of work. OSM already has
+            // the perimeter roads and often the main walkways, so this turns
+            // that into one tap and leaves only the gaps to draw.
+            Text(
+                text = if (importing) {
+                    "جاري الاستيراد…"
+                } else {
+                    "استيراد الطرق من OpenStreetMap (المنطقة الظاهرة)"
+                },
+                color = if (importing) Muted else Color(0xFF0B1520),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (importing) Color(0xFF1B2836) else Good,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .then(
+                        if (importing) Modifier
+                        else Modifier.clickable {
+                            importMessage = null
+                            importRequested = true
+                        }
+                    )
+                    .padding(vertical = 12.dp)
+            )
+
+            importMessage?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+            }
 
             Spacer(Modifier.height(14.dp))
 

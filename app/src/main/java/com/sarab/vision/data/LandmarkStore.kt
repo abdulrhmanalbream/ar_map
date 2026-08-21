@@ -151,7 +151,8 @@ class LandmarkStore(private val context: Context) {
                     hours = o.optString("hours", ""),
                     amenities = amenities,
                     photos = photos,
-                    capturedAccuracyM = o.optDouble("accuracy", 0.0).toFloat()
+                    capturedAccuracyM = o.optDouble("accuracy", 0.0).toFloat(),
+                    placedManually = o.optBoolean("manual", false)
                 )
             )
         }
@@ -171,6 +172,7 @@ class LandmarkStore(private val context: Context) {
                     put("detail", l.detail)
                     put("hours", l.hours)
                     put("accuracy", l.capturedAccuracyM.toDouble())
+                    put("manual", l.placedManually)
                     put("amenities", JSONArray(l.amenities))
                     put(
                         "photos",

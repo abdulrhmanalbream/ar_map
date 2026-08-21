@@ -70,6 +70,7 @@ fun MapScreen(
 ) {
     var styleKind by remember { mutableStateOf(MapStyles.Kind.SATELLITE) }
     var focusOn by remember { mutableStateOf<LatLng?>(null) }
+    var focusNonce by remember { mutableStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B1520))) {
         CampusMapView(
@@ -79,6 +80,7 @@ fun MapScreen(
             userPosition = userFix?.position,
             styleKind = styleKind,
             focusOn = focusOn,
+            focusNonce = focusNonce,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -136,9 +138,10 @@ fun MapScreen(
                     modifier = Modifier
                         .background(Panel, RoundedCornerShape(12.dp))
                         .clickable {
-                            // Nudge the value so the same position still
-                            // triggers a recentre.
+                            // Bump the nonce so pressing this twice recentres
+                            // twice, even though the coordinate is identical.
                             focusOn = LatLng(me.latitude, me.longitude)
+                            focusNonce++
                         }
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 )

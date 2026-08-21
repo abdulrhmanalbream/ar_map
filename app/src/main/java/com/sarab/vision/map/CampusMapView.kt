@@ -14,6 +14,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.sarab.vision.core.GeoBounds
 import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.PathNetwork
@@ -78,7 +79,30 @@ fun CampusMapView(
     styleKind: MapStyles.Kind,
     focusOn: LatLng?,
     modifier: Modifier = Modifier,
-    onMapTap: ((LatLng) -> Unit)? = null
+    /**
+     * Bump this to re-apply [focusOn] even when the coordinate is unchanged.
+     *
+     * "Recentre on me" is pressed precisely when the map has been dragged away
+     * from a position it was already given, so comparing coordinates alone
+     * would make the button do nothing the second time.
+     */
+    focusNonce: Int = 0,
+    onMapTap: ((LatLng) -> Unit)? = null,
+    /**
+     * Reports the map centre once the camera settles.
+     *
+     * Fired on idle rather than on every frame of a pan: this drives Compose
+     * state, and a per-frame update would rebuild every GeoJSON source on the
+     * map sixty times a second.
+     */
+    onCentreChanged: ((LatLng) -> Unit)? = null,
+    /**
+     * Reports the area currently on screen, once the camera settles.
+     *
+     * The OSM import needs a bounding box, and "what the admin is looking at"
+     * is the only definition of the campus the app has.
+     */
+    onVisibleBoundsChanged: ((GeoBounds) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -95,6 +119,8 @@ fun CampusMapView(
     // an empty network, so nothing ever accumulated. rememberUpdatedState
     // keeps the handler pointing at the current lambda.
     val currentOnMapTap by rememberUpdatedState(onMapTap)
+    val currentOnCentreChanged by rememberUpdatedState(onCentreChanged)
+    val currentOnBoundsChanged by rememberUpdatedState(onVisibleBoundsChanged)
     val currentStyleKind by rememberUpdatedState(styleKind)
 
     /** Which basemap the loaded style represents, so switches are detected. */
@@ -102,6 +128,16 @@ fun CampusMapView(
 
     /** Whether the camera has been auto-framed; it must only happen once. */
     val framed = remember { booleanArrayOf(false) }
+
+    /**
+     * The focus request already honoured.
+     *
+     * Without this the update block re-animated to [focusOn] on EVERY
+     * recomposition, so the map snapped back the instant anything else
+     * changed -- which made dragging under the crosshair impossible.
+     */
+    val lastFocus = remember { arrayOfNulls<LatLng>(1) }
+    val lastFocusNonce = remember { intArrayOf(-1) }
 
     /** Guards against calling MapView.onCreate twice. */
     val created = remember { booleanArrayOf(false) }
@@ -158,6 +194,24 @@ fun CampusMapView(
                         currentOnMapTap?.invoke(LatLng(point.latitude, point.longitude))
                         true
                     }
+
+                    map.addOnCameraIdleListener {
+                        map.cameraPosition.target?.let { target ->
+                            currentOnCentreChanged
+                                ?.invoke(LatLng(target.latitude, target.longitude))
+                        }
+                        currentOnBoundsChanged?.let { callback ->
+                            val region = map.projection.visibleRegion.latLngBounds
+                            callback(
+                                GeoBounds(
+                                    minLat = region.latitudeSouth,
+                                    maxLat = region.latitudeNorth,
+                                    minLon = region.longitudeWest,
+                                    maxLon = region.longitudeEast
+                                )
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -180,17 +234,25 @@ fun CampusMapView(
 
             if (!framed[0]) {
                 frame(map, landmarks, userPosition, focusOn)
+                lastFocus[0] = focusOn
+                lastFocusNonce[0] = focusNonce
                 // Only auto-frame once: re-framing on every update would fight
                 // the user every time they panned.
                 if (landmarks.isNotEmpty() || userPosition != null) framed[0] = true
-            } else {
-                focusOn?.let {
-                    map.animateCamera(
-                        CameraUpdateFactory.newLatLngZoom(
-                            MapLatLng(it.latitude, it.longitude), 17.0
-                        )
+            } else if (
+                focusOn != null &&
+                focusOn.isValid &&
+                (focusOn != lastFocus[0] || focusNonce != lastFocusNonce[0])
+            ) {
+                // Only on a NEW request. Re-animating on every recomposition
+                // would drag the camera back under the user's finger.
+                lastFocus[0] = focusOn
+                lastFocusNonce[0] = focusNonce
+                map.animateCamera(
+                    CameraUpdateFactory.newLatLngZoom(
+                        MapLatLng(focusOn.latitude, focusOn.longitude), 17.0
                     )
-                }
+                )
             }
         },
         modifier = modifier

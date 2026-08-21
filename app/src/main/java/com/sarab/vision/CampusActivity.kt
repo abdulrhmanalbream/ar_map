@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,6 +32,7 @@ import com.sarab.vision.ui.MapScreen
 import com.sarab.vision.ui.PathEditorScreen
 import com.sarab.vision.ui.DemoControls
 import com.sarab.vision.ui.LandmarkListScreen
+import com.sarab.vision.ui.LocationPickerScreen
 import com.sarab.vision.ui.SurveyScreen
 
 /**
@@ -66,6 +68,19 @@ class CampusActivity : ComponentActivity() {
         campus = CampusApp.state(this)
         hasLocationPermission = checkLocationPermission()
 
+        // Back closes whatever is open rather than the whole screen.
+        //
+        // Without this, pressing back inside the map picker threw away a
+        // half-finished landmark -- the name typed, the category chosen and
+        // every photo attached -- with no warning and no way back.
+        onBackPressedDispatcher.addCallback(this) {
+            when {
+                campus.pickingLocation -> campus.pickingLocation = false
+                campus.mode != AppMode.LIST -> campus.mode = AppMode.LIST
+                else -> finish()
+            }
+        }
+
         setContent {
             // Force right-to-left layout.
             //
@@ -83,12 +98,21 @@ class CampusActivity : ComponentActivity() {
                     .fillMaxSize()
                     .background(Color(0xFF0D1B2A))
             ) {
+                // Screens that can work with no live position at all.
+                //
+                // Survey mode can take its coordinate from the map picker and
+                // the path editor is drawn by tapping, so blocking either of
+                // them behind GPS would recreate exactly the dead end this
+                // release exists to remove.
+                val needsLiveFix = campus.mode != AppMode.SURVEY &&
+                    campus.mode != AppMode.PATHS
+
                 when {
                     // Demo mode deliberately bypasses these gates: it needs
                     // no GPS at all, and it is exactly what someone away from
                     // the campus (or indoors with no fix) should be able to
                     // reach without first granting location access.
-                    !hasLocationPermission && !campus.demoActive -> Column(
+                    !hasLocationPermission && !campus.demoActive && needsLiveFix -> Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -112,7 +136,7 @@ class CampusActivity : ComponentActivity() {
                         )
                     }
 
-                    gpsDisabled && !campus.demoActive -> BlockingMessage(
+                    gpsDisabled && !campus.demoActive && needsLiveFix -> BlockingMessage(
                         title = "خدمة الموقع مغلقة",
                         body = "فعّل خدمة الموقع (GPS) من إعدادات الجهاز حتى يتمكن " +
                             "التطبيق من تحديد موقعك.",
@@ -181,20 +205,42 @@ class CampusActivity : ComponentActivity() {
                             }
                         )
 
-                        AppMode.SURVEY -> SurveyScreen(
-                            fix = campus.fix,
-                            samplesCollected = campus.surveySampleCount,
-                            capturedLandmarks = campus.landmarks,
-                            pendingPhotoCount = campus.pendingPhotoCount,
-                            pendingPhotos = campus.pendingPhotoList,
-                            photoDir = campus.photoDir,
-                            onCapturePhoto = { viewpoint -> capturePhoto(viewpoint) },
-                            onSaveLandmark = { name, category, detail ->
-                                saveLandmark(name, category, detail)
-                            },
-                            onExport = { exportSurvey() },
-                            onExit = { campus.mode = AppMode.LIST }
-                        )
+                        // The picker is a full-screen step of the survey
+                        // rather than a separate mode: the half-typed name and
+                        // the photos already attached have to survive it.
+                        AppMode.SURVEY -> if (campus.pickingLocation) {
+                            LocationPickerScreen(
+                                landmarks = campus.landmarks,
+                                pathNetwork = campus.pathNetwork,
+                                userFix = campus.fix,
+                                initial = campus.manualPosition,
+                                onConfirm = { position ->
+                                    campus.chooseManualPosition(position)
+                                    campus.pickingLocation = false
+                                },
+                                onClose = { campus.pickingLocation = false }
+                            )
+                        } else {
+                            SurveyScreen(
+                                fix = campus.surveyFix,
+                                samplesCollected = campus.surveySampleCount,
+                                capturedLandmarks = campus.landmarks,
+                                pendingPhotoCount = campus.pendingPhotoCount,
+                                pendingPhotos = campus.pendingPhotoList,
+                                photoDir = campus.photoDir,
+                                manualPosition = campus.manualPosition,
+                                onPickLocation = { campus.pickingLocation = true },
+                                onClearManualPosition = {
+                                    campus.chooseManualPosition(null)
+                                },
+                                onCapturePhoto = { viewpoint -> capturePhoto(viewpoint) },
+                                onSaveLandmark = { name, category, detail ->
+                                    saveLandmark(name, category, detail)
+                                },
+                                onExport = { exportSurvey() },
+                                onExit = { campus.mode = AppMode.LIST }
+                            )
+                        }
 
                         AppMode.PATHS -> PathEditorScreen(
                             network = campus.pathNetwork,
@@ -271,21 +317,29 @@ class CampusActivity : ComponentActivity() {
     ) { uris ->
         if (uris.isEmpty()) return@registerForActivityResult
         var imported = 0
-        uris.forEach { uri ->
+        uris.forEachIndexed { index, uri ->
             val name = ImageImporter.importFromGallery(
                 context = this,
                 uri = uri,
                 dir = campus.photoDir,
-                baseName = "img-${System.currentTimeMillis()}-$imported"
+                // Indexed rather than counted: a failed import used to leave
+                // the counter unchanged, so the next photo in the same batch
+                // reused the name and overwrote it.
+                baseName = "img-${System.currentTimeMillis()}-$index"
             )
             if (name != null) {
                 campus.addPendingPhoto(name, pendingViewpoint)
                 imported++
             }
         }
+        val failed = uris.size - imported
         Toast.makeText(
             this,
-            if (imported > 0) "تمت إضافة $imported صورة" else "تعذّر قراءة الصور",
+            when {
+                imported > 0 && failed == 0 -> "تمت إضافة $imported صورة"
+                imported > 0 -> "تمت إضافة $imported صورة، وتعذّر قراءة $failed"
+                else -> "تعذّر قراءة الصور — جرّب صورة بصيغة JPG أو PNG"
+            },
             Toast.LENGTH_SHORT
         ).show()
     }

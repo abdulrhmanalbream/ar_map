@@ -45,6 +45,7 @@ import com.sarab.vision.core.GpsFix
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.LandmarkCategory
 import com.sarab.vision.core.LandmarkPhoto
+import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Viewpoint
 import com.sarab.vision.data.ImageImporter
 import java.io.File
@@ -80,6 +81,10 @@ fun SurveyScreen(
     pendingPhotoCount: Int,
     pendingPhotos: List<LandmarkPhoto>,
     photoDir: File,
+    /** Hand-picked coordinate, when the surveyor chose one on the map. */
+    manualPosition: LatLng?,
+    onPickLocation: () -> Unit,
+    onClearManualPosition: () -> Unit,
     onCapturePhoto: (Viewpoint) -> Unit,
     onSaveLandmark: (name: String, category: LandmarkCategory, detail: String) -> Unit,
     onExport: () -> Unit,
@@ -96,10 +101,15 @@ fun SurveyScreen(
         accuracy <= POOR_ACCURACY_M -> Warn
         else -> Bad
     }
-    val canSave = fix != null &&
-        accuracy != null &&
-        accuracy <= POOR_ACCURACY_M &&
-        name.isNotBlank()
+
+    // A hand-picked point replaces the GPS requirement outright.
+    //
+    // The old gate demanded a live fix better than 20m, which never arrives
+    // indoors -- so the screen sat on "waiting for GPS" and no landmark could
+    // ever be added. Photos were never part of this gate and still are not.
+    val hasUsablePosition = manualPosition != null ||
+        (fix != null && accuracy != null && accuracy <= POOR_ACCURACY_M)
+    val canSave = hasUsablePosition && name.isNotBlank()
 
     Column(
         modifier = Modifier
@@ -114,19 +124,19 @@ fun SurveyScreen(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Survey mode",
+                    "إضافة معلم",
                     color = Color.White,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "Stand at the entrance, then save",
+                    "قف عند المدخل واحفظ، أو حدد الموقع على الخريطة",
                     color = Muted,
                     fontSize = 13.sp
                 )
             }
             Text(
-                "Done",
+                "تم",
                 color = Accent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
@@ -139,64 +149,133 @@ fun SurveyScreen(
 
         Spacer(Modifier.height(18.dp))
 
-        // ---- GPS quality -------------------------------------------------
+        // ---- Where this landmark is --------------------------------------
+        //
+        // Two independent ways to answer that question. Standing there with a
+        // good fix is the better one, but it must never be the only one --
+        // that is what left this screen stuck on "waiting for GPS".
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Panel, RoundedCornerShape(16.dp))
                 .padding(16.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .background(accuracyColour, CircleShape)
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = when {
-                        fix == null -> "Waiting for GPS…"
-                        accuracy == null -> "GPS accuracy unknown"
-                        accuracy <= GOOD_ACCURACY_M -> "GPS good · ±${accuracy.roundToInt()} m"
-                        accuracy <= POOR_ACCURACY_M -> "GPS fair · ±${accuracy.roundToInt()} m"
-                        else -> "GPS poor · ±${accuracy.roundToInt()} m"
-                    },
-                    color = accuracyColour,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            if (fix == null) {
+            if (manualPosition != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(Accent, CircleShape)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "موقع محدد يدوياً",
+                        color = Accent,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "إلغاء",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .background(Color(0xFF243244), RoundedCornerShape(10.dp))
+                            .clickable(onClick = onClearManualPosition)
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "First fix can take up to a minute outdoors with no internet. " +
-                        "Stand in the open with a clear view of the sky.",
+                    "%.6f, %.6f".format(
+                        manualPosition.latitude,
+                        manualPosition.longitude
+                    ),
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "دقة تقديرية ±8 م — أقل من قياس فعلي على الأرض، لكنه كافٍ للتوجيه.",
                     color = Muted,
                     fontSize = 12.sp,
                     lineHeight = 17.sp
                 )
             } else {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "%.6f, %.6f · %d samples".format(
-                        fix.position.latitude,
-                        fix.position.longitude,
-                        samplesCollected
-                    ),
-                    color = Muted,
-                    fontSize = 12.sp
-                )
-                if (accuracy != null && accuracy > POOR_ACCURACY_M) {
-                    Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(accuracyColour, CircleShape)
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        "Too imprecise to save. Move into the open and wait a few seconds.",
-                        color = Bad,
+                        text = when {
+                            fix == null -> "بانتظار GPS…"
+                            accuracy == null -> "دقة GPS غير معروفة"
+                            accuracy <= GOOD_ACCURACY_M ->
+                                "GPS ممتاز · ±${accuracy.roundToInt()} م"
+                            accuracy <= POOR_ACCURACY_M ->
+                                "GPS مقبول · ±${accuracy.roundToInt()} م"
+                            else -> "GPS ضعيف · ±${accuracy.roundToInt()} م"
+                        },
+                        color = accuracyColour,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (fix == null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "أول قراءة قد تستغرق دقيقة في مكان مكشوف. إن كنت داخل مبنى " +
+                            "فلن تصل أبداً — استخدم تحديد الموقع على الخريطة بالأسفل.",
+                        color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "%.6f, %.6f · %d قراءات".format(
+                            fix.position.latitude,
+                            fix.position.longitude,
+                            samplesCollected
+                        ),
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                    if (accuracy != null && accuracy > POOR_ACCURACY_M) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "الدقة ضعيفة جداً للحفظ. اخرج للمكشوف، أو حدد الموقع " +
+                                "على الخريطة.",
+                            color = Bad,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
                 }
             }
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = if (manualPosition == null) {
+                    "تحديد الموقع على الخريطة"
+                } else {
+                    "تعديل الموقع على الخريطة"
+                },
+                color = Bg,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Accent, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onPickLocation)
+                    .padding(vertical = 13.dp)
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -238,8 +317,8 @@ fun SurveyScreen(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Landmark name") },
-            placeholder = { Text("e.g. Engineering College") },
+            label = { Text("اسم المعلم") },
+            placeholder = { Text("مثال: كلية الحاسب الآلي") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             colors = fieldColours(),
@@ -248,7 +327,7 @@ fun SurveyScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        Text("Category", color = Muted, fontSize = 12.sp)
+        Text("التصنيف", color = Muted, fontSize = 12.sp)
         Spacer(Modifier.height(8.dp))
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -279,8 +358,8 @@ fun SurveyScreen(
         OutlinedTextField(
             value = detail,
             onValueChange = { detail = it },
-            label = { Text("Notes (optional)") },
-            placeholder = { Text("Floors, labs, access…") },
+            label = { Text("ملاحظات (اختياري)") },
+            placeholder = { Text("الأدوار، المعامل، المداخل…") },
             colors = fieldColours(),
             modifier = Modifier
                 .fillMaxWidth()
@@ -291,14 +370,14 @@ fun SurveyScreen(
 
         // ---- Photos -------------------------------------------------------
         Text(
-            "Photos ($pendingPhotoCount)",
+            "الصور ($pendingPhotoCount)",
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Take several: at the entrance, from the side, and from further away.",
+            "اختيارية. الأفضل عدة صور: عند المدخل، من الجانب، ومن بعيد.",
             color = Muted,
             fontSize = 12.sp,
             lineHeight = 17.sp
@@ -377,10 +456,10 @@ fun SurveyScreen(
         ) {
             Text(
                 text = when {
-                    name.isBlank() -> "Enter a name to save"
-                    fix == null -> "Waiting for GPS…"
-                    accuracy != null && accuracy > POOR_ACCURACY_M -> "GPS too imprecise"
-                    else -> "Save landmark here"
+                    name.isBlank() -> "اكتب اسم المعلم أولاً"
+                    !hasUsablePosition -> "حدد الموقع على الخريطة"
+                    manualPosition != null -> "حفظ في الموقع المحدد"
+                    else -> "حفظ المعلم هنا"
                 },
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
@@ -395,7 +474,7 @@ fun SurveyScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                "Captured (${capturedLandmarks.size})",
+                "المعالم المحفوظة (${capturedLandmarks.size})",
                 color = Color.White,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
@@ -403,7 +482,7 @@ fun SurveyScreen(
             )
             if (capturedLandmarks.isNotEmpty()) {
                 Text(
-                    "Export",
+                    "تصدير",
                     color = Accent,
                     fontSize = 14.sp,
                     modifier = Modifier
@@ -418,7 +497,7 @@ fun SurveyScreen(
 
         if (capturedLandmarks.isEmpty()) {
             Text(
-                "Nothing recorded yet.",
+                "لا يوجد شيء محفوظ بعد.",
                 color = Muted,
                 fontSize = 13.sp
             )
@@ -444,9 +523,16 @@ fun SurveyScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(lm.name, color = Color.White, fontSize = 15.sp)
                         Text(
-                            "${lm.category.labelAr} · ${lm.photos.size} صور · " +
-                                "±${lm.capturedAccuracyM.roundToInt()} م",
-                            color = Muted,
+                            buildString {
+                                append(lm.category.labelAr)
+                                append(" · ${lm.photos.size} صور · ")
+                                append("±${lm.capturedAccuracyM.roundToInt()} م")
+                                // Flagged plainly: a hand-placed point is an
+                                // estimate, and whoever revisits this survey
+                                // needs to know which rows were measured.
+                                if (lm.placedManually) append(" · يدوي")
+                            },
+                            color = if (lm.placedManually) Warn else Muted,
                             fontSize = 11.sp
                         )
                     }

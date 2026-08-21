@@ -38,10 +38,19 @@ object ImageImporter {
      */
     fun importFromGallery(context: Context, uri: Uri, dir: File, baseName: String): String? {
         return try {
+            // The elvis must NOT be attached to this `use` block. With
+            // inJustDecodeBounds set, decodeStream ALWAYS returns null by
+            // design -- it fills `bounds` instead -- so
+            // `openInputStream(uri)?.use { decodeStream(...) } ?: return null`
+            // bailed out on every single image ever picked. The stream's
+            // nullability has to be checked on its own.
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, bounds)
-            } ?: return null
+            val boundsStream = context.contentResolver.openInputStream(uri)
+            if (boundsStream == null) {
+                Log.w(TAG, "Could not open $uri")
+                return null
+            }
+            boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
 
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
                 Log.w(TAG, "Could not read image bounds for $uri")

@@ -29,7 +29,17 @@ data class Landmark(
      */
     val photos: List<LandmarkPhoto> = emptyList(),
     /** Accuracy of the fix this landmark was captured with, in metres. */
-    val capturedAccuracyM: Float = 0f
+    val capturedAccuracyM: Float = 0f,
+    /**
+     * True when the coordinate was placed by hand on the map instead of
+     * measured by standing there.
+     *
+     * Worth recording rather than silently blending the two: a hand-placed
+     * point is only as good as the satellite imagery it was dropped on, and
+     * when a route later sends someone to the wrong door this is the first
+     * thing anyone needs to know.
+     */
+    val placedManually: Boolean = false
 ) {
     /** Primary photo, used for list thumbnails and the detail card header. */
     val primaryPhoto: LandmarkPhoto?
