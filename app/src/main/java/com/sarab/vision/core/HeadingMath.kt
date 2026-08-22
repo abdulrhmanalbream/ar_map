@@ -168,21 +168,49 @@ fun computeHeading(
 }
 
 /**
- * Circular exponential smoothing.
+ * A jump larger than this is treated as a glitch on first sight.
+ *
+ * The magnetometer occasionally emits a single wild sample -- passing a metal
+ * door frame, a speaker, a car. Following it throws the needle across the dial
+ * and back, which looks broken.
+ */
+private const val SPIKE_DEG = 60.0
+
+/**
+ * Circular exponential smoothing, with single-sample spike rejection.
  *
  * Averaging raw degrees is wrong: the mean of 359 and 1 is 180, so the needle
  * swings a half turn every time it crosses north. Smoothing the sine and
  * cosine instead keeps it continuous.
  *
+ * ## Responsiveness
+ *
+ * The original alpha of 0.18 was chosen to fight jitter, but jitter is better
+ * killed at the source: sub-degree changes are now dropped before they ever
+ * reach Compose. That frees the filter to be genuinely responsive, so alpha
+ * defaults higher here and the needle keeps up with the phone.
+ *
+ * ## Why one big jump is ignored but two are not
+ *
+ * A deliberate turn is sustained: at sensor rate it arrives as a run of
+ * samples all moving the same way. A glitch is one sample, alone. So the first
+ * wild reading is discarded and the second is believed -- which rejects
+ * interference without adding any lag a person can perceive, since two samples
+ * is well under a tenth of a second.
+ *
  * @param alpha 0..1; lower is steadier but laggier.
  */
-class CircularSmoother(private val alpha: Double = 0.18) {
+class CircularSmoother(private val alpha: Double = 0.30) {
     private var sin = 0.0
     private var cos = 0.0
     private var primed = false
 
+    /** True when the previous sample was also a large jump. */
+    private var sawSpike = false
+
     fun reset() {
         primed = false
+        sawSpike = false
     }
 
     fun next(degrees: Double): Double {
@@ -194,10 +222,23 @@ class CircularSmoother(private val alpha: Double = 0.18) {
             sin = s
             cos = c
             primed = true
-        } else {
-            sin = sin * (1 - alpha) + s * alpha
-            cos = cos * (1 - alpha) + c * alpha
+            return current()
         }
-        return (Math.toDegrees(atan2(sin, cos)) + 360.0) % 360.0
+
+        val change = kotlin.math.abs(relativeBearing(current(), degrees))
+
+        if (change >= SPIKE_DEG && !sawSpike) {
+            // First outlier: hold position and wait to see if it repeats.
+            sawSpike = true
+            return current()
+        }
+        sawSpike = false
+
+        sin = sin * (1 - alpha) + s * alpha
+        cos = cos * (1 - alpha) + c * alpha
+        return current()
     }
+
+    private fun current(): Double =
+        (Math.toDegrees(atan2(sin, cos)) + 360.0) % 360.0
 }

@@ -4,19 +4,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -38,23 +38,31 @@ import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.PathNetwork
 import com.sarab.vision.core.Route
 import com.sarab.vision.core.TravelMode
-import com.sarab.vision.core.formatDistanceAr
-import com.sarab.vision.core.travelMinutes
+import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.map.CampusMapView
 import com.sarab.vision.map.MapStyles
 
 private val Panel = Color(0xE6121A24)
 private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
 private val Muted = Color(0xFF9FB3C8)
+
+/**
+ * How near a tap must land to a pin to count as selecting it, in metres.
+ *
+ * Generous on purpose: a fingertip covers a wide area on a phone screen, and
+ * a tap that lands "close enough" to obviously mean one building should
+ * select it rather than doing nothing.
+ */
+private const val TAP_SELECT_RADIUS_M = 45.0
 
 /**
  * The campus map screen.
  *
- * Replaces the hand-drawn Canvas map. That version could never look like a
- * real map because it was not one -- no imagery, no proper projection, no
- * gestures. This is MapLibre with satellite imagery, matching the engine and
- * quality of the reference web map.
+ * Built to the conventions of every mapping app people already use: tap a
+ * place to select it, see the route drawn as a cased blue line, read the time
+ * and distance in a sheet at the bottom, switch travel mode there. Matching
+ * those conventions is not imitation for its own sake -- it means nobody has
+ * to be taught how to use this.
  */
 @Composable
 fun MapScreen(
@@ -62,8 +70,11 @@ fun MapScreen(
     route: Route?,
     pathNetwork: PathNetwork,
     userFix: GpsFix?,
+    headingDegrees: Double?,
     travelMode: TravelMode,
+    selectedId: String?,
     selectedName: String?,
+    onSelect: (Landmark?) -> Unit,
     onModeChange: (TravelMode) -> Unit,
     onClose: () -> Unit,
     onStartAr: () -> Unit
@@ -80,8 +91,23 @@ fun MapScreen(
             userPosition = userFix?.position,
             styleKind = styleKind,
             focusOn = focusOn,
+            modifier = Modifier.fillMaxSize(),
+            userAccuracyM = userFix?.accuracyMeters,
+            userHeadingDeg = headingDegrees,
+            selectedId = selectedId,
             focusNonce = focusNonce,
-            modifier = Modifier.fillMaxSize()
+            onMapTap = { tapped ->
+                // Nearest pin within reach, or clear the selection. Tapping
+                // empty ground meaning "never mind" is the behaviour every
+                // map has, and expecting a dedicated button instead would be
+                // one more thing to explain.
+                val nearest = landmarks
+                    .map { it to distanceMeters(tapped, it.position) }
+                    .filter { it.second <= TAP_SELECT_RADIUS_M }
+                    .minByOrNull { it.second }
+                    ?.first
+                onSelect(nearest)
+            }
         )
 
         // ---- Top controls -------------------------------------------------
@@ -104,7 +130,8 @@ fun MapScreen(
             Spacer(Modifier.width(8.dp))
 
             // Basemap switch: satellite is the default because a campus reads
-            // best from above, but imagery can be too dark to label-read.
+            // best from above, and it now carries road and place labels so it
+            // is readable rather than merely pretty.
             Row(
                 modifier = Modifier
                     .background(Panel, RoundedCornerShape(12.dp))
@@ -127,102 +154,41 @@ fun MapScreen(
                     )
                 }
             }
-
-            Spacer(Modifier.width(8.dp))
-
-            userFix?.position?.takeIf { it.isValid }?.let { me ->
-                Text(
-                    "موقعي",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .background(Panel, RoundedCornerShape(12.dp))
-                        .clickable {
-                            // Bump the nonce so pressing this twice recentres
-                            // twice, even though the coordinate is identical.
-                            focusOn = LatLng(me.latitude, me.longitude)
-                            focusNonce++
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                )
-            }
         }
 
-        // ---- Bottom summary -----------------------------------------------
-        Column(
+        // ---- Recentre ------------------------------------------------------
+        userFix?.position?.takeIf { it.isValid }?.let { me ->
+            Text(
+                "◎",
+                color = Color.White,
+                fontSize = 20.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 14.dp)
+                    .size(46.dp)
+                    .background(Panel, CircleShape)
+                    .clickable {
+                        // Bump the nonce so pressing twice recentres twice,
+                        // even though the coordinate is identical.
+                        focusOn = LatLng(me.latitude, me.longitude)
+                        focusNonce++
+                    }
+                    .padding(top = 11.dp)
+            )
+        }
+
+        // ---- Route sheet ---------------------------------------------------
+        RouteCard(
+            route = route,
+            destinationName = selectedName,
+            travelMode = travelMode,
+            onModeChange = onModeChange,
+            onStartAr = onStartAr,
+            onClear = { onSelect(null) },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(14.dp)
-                .background(Panel, RoundedCornerShape(18.dp))
-                .padding(16.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                TravelMode.entries.forEach { mode ->
-                    val selected = mode == travelMode
-                    Text(
-                        text = mode.labelAr,
-                        color = if (selected) Color(0xFF0B1520) else Muted,
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .background(
-                                if (selected) Accent else Color(0xFF1B2836),
-                                RoundedCornerShape(12.dp)
-                            )
-                            .clickable { onModeChange(mode) }
-                            .padding(vertical = 11.dp)
-                    )
-                }
-            }
-
-            if (route != null && route.points.size >= 2) {
-                Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier.size(10.dp).background(Amber, CircleShape)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            selectedName ?: "المسار",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "${formatDistanceAr(route.distanceMeters)} · " +
-                                "${travelMinutes(route.distanceMeters, travelMode)} دقيقة",
-                            color = Muted,
-                            fontSize = 12.sp
-                        )
-                    }
-                    Text(
-                        "ابدأ بالكاميرا",
-                        color = Color(0xFF0B1520),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .background(Accent, RoundedCornerShape(12.dp))
-                            .clickable(onClick = onStartAr)
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
-                    )
-                }
-            } else {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    if (landmarks.isEmpty()) "لا توجد معالم بعد"
-                    else "اختر وجهة لعرض المسار",
-                    color = Muted,
-                    fontSize = 12.sp
-                )
-            }
-        }
+        )
     }
 }

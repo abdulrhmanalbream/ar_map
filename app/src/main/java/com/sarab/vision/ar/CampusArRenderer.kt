@@ -9,6 +9,7 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.sarab.vision.core.Vec3
 import com.sarab.vision.core.groundPathLength
+import com.sarab.vision.render.ArrowRenderer
 import com.sarab.vision.render.CameraBackgroundRenderer
 import com.sarab.vision.render.LabelRenderer
 import com.sarab.vision.render.MarkerRenderer
@@ -42,6 +43,7 @@ class CampusArRenderer(
 
     private val cameraRenderer = CameraBackgroundRenderer()
     private val pathRenderer = PathRenderer()
+    private val arrowRenderer = ArrowRenderer()
     private val markerRenderer = MarkerRenderer()
     private val labelRenderer = LabelRenderer()
 
@@ -107,6 +109,7 @@ class CampusArRenderer(
         try {
             cameraRenderer.createOnGlThread()
             pathRenderer.createOnGlThread()
+            arrowRenderer.createOnGlThread()
             markerRenderer.createOnGlThread()
             labelRenderer.createOnGlThread()
         } catch (e: Exception) {
@@ -189,6 +192,9 @@ class CampusArRenderer(
         val elapsed = (System.nanoTime() - startNanos) / 1_000_000_000f
 
         pathRenderer.draw(viewProjectionMatrix, elapsed)
+        // Arrows over the ribbon: the ribbon shows where the path is, the
+        // chevrons say which way to walk along it.
+        arrowRenderer.draw(viewProjectionMatrix, elapsed)
         markerRenderer.draw(viewProjectionMatrix, markerPos, 0.35f, elapsed, false)
         labelRenderer.draw(viewProjectionMatrix, viewMatrix, labelPos)
 
@@ -226,6 +232,7 @@ class CampusArRenderer(
             points.add(Vec3(camX + dirX * t, y, camZ + dirZ * t))
         }
         pathRenderer.updatePath(points, widthMeters = 0.5f)
+        arrowRenderer.updatePath(points)
 
         // Marker and label at the end of the visible stub.
         val endX = camX + dirX * length

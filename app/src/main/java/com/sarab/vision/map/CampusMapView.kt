@@ -29,6 +29,8 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -44,9 +46,17 @@ private const val SRC_PATHS = "paths"
 private const val SRC_USER = "user"
 
 private const val LYR_PATHS = "paths-line"
+private const val LYR_ROUTE_CASING = "route-casing"
 private const val LYR_ROUTE = "route-line"
-private const val LYR_LANDMARKS = "landmarks-circle"
+private const val LYR_LANDMARKS = "landmarks-pin"
+private const val LYR_LABELS = "landmarks-label"
+private const val LYR_ACCURACY = "user-accuracy"
 private const val LYR_USER = "user-dot"
+
+/** Icon ids registered into the style. */
+private const val ICON_PIN = "icon-pin"
+private const val ICON_PIN_ACTIVE = "icon-pin-active"
+private const val ICON_PUCK = "icon-puck"
 
 /**
  * Where to point the camera when there is nothing else to frame.
@@ -79,6 +89,12 @@ fun CampusMapView(
     styleKind: MapStyles.Kind,
     focusOn: LatLng?,
     modifier: Modifier = Modifier,
+    /** GPS accuracy in metres, drawn as the halo around the location puck. */
+    userAccuracyM: Float? = null,
+    /** Compass heading, which rotates the puck's cone. Null hides the cone. */
+    userHeadingDeg: Double? = null,
+    /** Landmark drawn in the accent colour, so it is findable at a glance. */
+    selectedId: String? = null,
     /**
      * Bump this to re-apply [focusOn] even when the coordinate is unchanged.
      *
@@ -106,6 +122,10 @@ fun CampusMapView(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val density = context.resources.displayMetrics.density
+
+    /** Label bitmaps already registered, so each is drawn only once. */
+    val registeredLabels = remember { mutableSetOf<String>() }
 
     // MapLibre must be initialised before any MapView is constructed.
     remember { MapLibre.getInstance(context) }
@@ -183,7 +203,8 @@ fun CampusMapView(
                     map.setStyle(
                         Style.Builder().fromJson(MapStyles.styleFor(currentStyleKind))
                     ) { style ->
-                        installLayers(style)
+                        registeredLabels.clear()
+                        installLayers(style, density)
                         loadedStyle[0] = currentStyleKind
                     }
 
@@ -222,15 +243,24 @@ fun CampusMapView(
             // must be reinstalled afterwards because a new style starts empty.
             if (loadedStyle[0] != styleKind) {
                 map.setStyle(Style.Builder().fromJson(MapStyles.styleFor(styleKind))) { style ->
-                    installLayers(style)
+                    // A new style starts empty, so every image registered
+                    // against the old one is gone with it.
+                    registeredLabels.clear()
+                    installLayers(style, density)
                     loadedStyle[0] = styleKind
-                    refresh(map, style, landmarks, route, pathNetwork, userPosition)
+                    refresh(
+                        map, style, landmarks, route, pathNetwork, userPosition,
+                        userAccuracyM, userHeadingDeg, selectedId, density, registeredLabels
+                    )
                 }
                 return@AndroidView
             }
 
             val style = map.style ?: return@AndroidView
-            refresh(map, style, landmarks, route, pathNetwork, userPosition)
+            refresh(
+                map, style, landmarks, route, pathNetwork, userPosition,
+                userAccuracyM, userHeadingDeg, selectedId, density, registeredLabels
+            )
 
             if (!framed[0]) {
                 frame(map, landmarks, userPosition, focusOn)
@@ -260,14 +290,23 @@ fun CampusMapView(
 }
 
 /**
- * Creates the empty sources and layers once.
+ * Creates the empty sources, icons and layers once.
  *
- * Order matters: paths sit under the route, which sits under the landmarks,
- * which sit under the user dot. Adding them in the wrong order buries the
- * thing the user most needs to see.
+ * Order matters: the drawn network sits under the route, which sits under the
+ * pins, which sit under their labels and the user. Adding them in the wrong
+ * order buries the thing the user most needs to see.
+ *
+ * The route is drawn as TWO lines -- a dark casing and a bright fill over it.
+ * That is what makes a route legible over satellite imagery, and it is why
+ * every mapping app does it: a single flat line disappears against a dark roof
+ * or a bright car park.
  */
-private fun installLayers(style: Style) {
+private fun installLayers(style: Style, density: Float) {
     try {
+        style.addImage(ICON_PIN, MapLabels.pin(density, highlight = false))
+        style.addImage(ICON_PIN_ACTIVE, MapLabels.pin(density, highlight = true))
+        style.addImage(ICON_PUCK, MapLabels.locationPuck(density, withHeading = true))
+
         style.addSource(GeoJsonSource(SRC_PATHS))
         style.addSource(GeoJsonSource(SRC_ROUTE))
         style.addSource(GeoJsonSource(SRC_LANDMARKS))
@@ -278,36 +317,84 @@ private fun installLayers(style: Style) {
             LineLayer(LYR_PATHS, SRC_PATHS).withProperties(
                 PropertyFactory.lineColor(AndroidColor.parseColor("#5A7A96")),
                 PropertyFactory.lineWidth(2.5f),
-                PropertyFactory.lineOpacity(0.55f)
+                PropertyFactory.lineOpacity(0.45f)
             )
         )
 
-        // The active route: the brightest line on the map.
         style.addLayer(
-            LineLayer(LYR_ROUTE, SRC_ROUTE).withProperties(
-                PropertyFactory.lineColor(AndroidColor.parseColor("#FFB300")),
-                PropertyFactory.lineWidth(6f),
+            LineLayer(LYR_ROUTE_CASING, SRC_ROUTE).withProperties(
+                PropertyFactory.lineColor(AndroidColor.parseColor("#0B3D62")),
+                PropertyFactory.lineWidth(11f),
                 PropertyFactory.lineOpacity(0.95f),
                 PropertyFactory.lineCap("round"),
                 PropertyFactory.lineJoin("round")
             )
         )
-
         style.addLayer(
-            CircleLayer(LYR_LANDMARKS, SRC_LANDMARKS).withProperties(
-                PropertyFactory.circleRadius(8f),
-                PropertyFactory.circleColor(AndroidColor.parseColor("#4FC3F7")),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor(AndroidColor.parseColor("#0B1520"))
+            LineLayer(LYR_ROUTE, SRC_ROUTE).withProperties(
+                PropertyFactory.lineColor(AndroidColor.parseColor("#2E9BFF")),
+                PropertyFactory.lineWidth(7f),
+                PropertyFactory.lineOpacity(1.0f),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round")
+            )
+        )
+
+        // Accuracy halo, sized in metres rather than pixels so it shrinks as
+        // the map zooms out -- an honest picture of how well GPS knows.
+        style.addLayer(
+            CircleLayer(LYR_ACCURACY, SRC_USER).withProperties(
+                PropertyFactory.circleRadius(
+                    Expression.interpolate(
+                        Expression.exponential(2f),
+                        Expression.zoom(),
+                        Expression.stop(12f, Expression.get("accuracyPx12")),
+                        Expression.stop(20f, Expression.get("accuracyPx20"))
+                    )
+                ),
+                PropertyFactory.circleColor(AndroidColor.parseColor("#1E88E5")),
+                PropertyFactory.circleOpacity(0.14f),
+                PropertyFactory.circleStrokeWidth(1f),
+                PropertyFactory.circleStrokeColor(AndroidColor.parseColor("#1E88E5")),
+                PropertyFactory.circleStrokeOpacity(0.35f)
             )
         )
 
         style.addLayer(
-            CircleLayer(LYR_USER, SRC_USER).withProperties(
-                PropertyFactory.circleRadius(7f),
-                PropertyFactory.circleColor(AndroidColor.parseColor("#FFFFFF")),
-                PropertyFactory.circleStrokeWidth(3f),
-                PropertyFactory.circleStrokeColor(AndroidColor.parseColor("#4FC3F7"))
+            SymbolLayer(LYR_LANDMARKS, SRC_LANDMARKS).withProperties(
+                PropertyFactory.iconImage(
+                    Expression.switchCase(
+                        Expression.get("active"), Expression.literal(ICON_PIN_ACTIVE),
+                        Expression.literal(ICON_PIN)
+                    )
+                ),
+                // Anchored at the tip, so the pin points AT the coordinate
+                // rather than sitting centred on it.
+                PropertyFactory.iconAnchor("bottom"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true)
+            )
+        )
+
+        style.addLayer(
+            SymbolLayer(LYR_LABELS, SRC_LANDMARKS).withProperties(
+                PropertyFactory.iconImage(Expression.get("label")),
+                PropertyFactory.iconAnchor("top"),
+                PropertyFactory.iconOffset(arrayOf(0f, 4f)),
+                // Labels may hide each other when they collide; the pin
+                // underneath always stays visible, so nothing is ever lost.
+                PropertyFactory.iconAllowOverlap(false),
+                PropertyFactory.iconOptional(true)
+            )
+        )
+
+        style.addLayer(
+            SymbolLayer(LYR_USER, SRC_USER).withProperties(
+                PropertyFactory.iconImage(ICON_PUCK),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconRotate(Expression.get("heading")),
+                PropertyFactory.iconRotationAlignment("map")
             )
         )
     } catch (e: Exception) {
@@ -315,25 +402,43 @@ private fun installLayers(style: Style) {
     }
 }
 
-/** Pushes the current data into the existing sources. */
+/**
+ * Pushes the current data into the existing sources.
+ *
+ * Landmark labels are registered as images on the fly: each name is drawn once
+ * to a bitmap by Android's text engine (which shapes Arabic correctly, unlike
+ * glyph-based map text) and reused until the name changes.
+ */
 private fun refresh(
     map: MapLibreMap,
     style: Style,
     landmarks: List<Landmark>,
     route: Route?,
     pathNetwork: PathNetwork,
-    userPosition: LatLng?
+    userPosition: LatLng?,
+    userAccuracyM: Float?,
+    userHeadingDeg: Double?,
+    selectedId: String?,
+    density: Float,
+    registeredLabels: MutableSet<String>
 ) {
     try {
-        (style.getSource(SRC_LANDMARKS) as? GeoJsonSource)?.setGeoJson(
-            FeatureCollection.fromFeatures(
-                landmarks.map {
-                    Feature.fromGeometry(
-                        Point.fromLngLat(it.position.longitude, it.position.latitude)
-                    ).apply { addStringProperty("name", it.name) }
-                }
-            )
-        )
+        val landmarkFeatures = landmarks.map { landmark ->
+            val active = landmark.id == selectedId
+            val labelId = "label-${landmark.id}-${if (active) "on" else "off"}"
+            if (registeredLabels.add(labelId)) {
+                style.addImage(labelId, MapLabels.pill(landmark.name, density, active))
+            }
+            Feature.fromGeometry(
+                Point.fromLngLat(landmark.position.longitude, landmark.position.latitude)
+            ).apply {
+                addStringProperty("name", landmark.name)
+                addStringProperty("label", labelId)
+                addBooleanProperty("active", active)
+            }
+        }
+        (style.getSource(SRC_LANDMARKS) as? GeoJsonSource)
+            ?.setGeoJson(FeatureCollection.fromFeatures(landmarkFeatures))
 
         // Always hand over a FeatureCollection: mixing Feature and
         // FeatureCollection through an elvis yields a supertype that matches
@@ -367,14 +472,39 @@ private fun refresh(
             )
         )
 
-        val userFeatures = userPosition?.takeIf { it.isValid }?.let {
-            listOf(Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)))
+        val userFeatures = userPosition?.takeIf { it.isValid }?.let { position ->
+            // The accuracy halo is a real distance, so its pixel radius has to
+            // be recomputed per zoom. Two reference stops let MapLibre
+            // interpolate the rest on the GPU.
+            val metres = (userAccuracyM ?: 0f).toDouble().coerceIn(0.0, 200.0)
+            listOf(
+                Feature.fromGeometry(
+                    Point.fromLngLat(position.longitude, position.latitude)
+                ).apply {
+                    addNumberProperty("heading", userHeadingDeg ?: 0.0)
+                    addNumberProperty("accuracyPx12", metresToPixels(metres, position.latitude, 12.0))
+                    addNumberProperty("accuracyPx20", metresToPixels(metres, position.latitude, 20.0))
+                }
+            )
         } ?: emptyList()
         (style.getSource(SRC_USER) as? GeoJsonSource)
             ?.setGeoJson(FeatureCollection.fromFeatures(userFeatures))
     } catch (e: Exception) {
         Log.e(TAG, "Failed to refresh map data", e)
     }
+}
+
+/**
+ * Metres to screen pixels at a given zoom and latitude.
+ *
+ * Web Mercator: one tile spans the world at zoom 0, and ground resolution
+ * shrinks by cos(latitude) away from the equator.
+ */
+private fun metresToPixels(metres: Double, latitude: Double, zoom: Double): Double {
+    val metresPerPixel = 156543.03392 *
+        kotlin.math.cos(Math.toRadians(latitude)) / Math.pow(2.0, zoom)
+    if (metresPerPixel <= 0.0) return 0.0
+    return metres / metresPerPixel
 }
 
 /** Frames the camera so everything relevant is on screen at first load. */

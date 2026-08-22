@@ -194,8 +194,11 @@ class CampusActivity : ComponentActivity() {
                             route = campus.route,
                             pathNetwork = campus.pathNetwork,
                             userFix = campus.fix,
+                            headingDegrees = campus.headingDegrees,
                             travelMode = campus.travelMode,
+                            selectedId = campus.target?.id,
                             selectedName = campus.target?.name,
+                            onSelect = { campus.selectTarget(it) },
                             onModeChange = { campus.chooseTravelMode(it) },
                             onClose = { campus.mode = AppMode.LIST },
                             onStartAr = {
@@ -285,8 +288,11 @@ class CampusActivity : ComponentActivity() {
             route = campus.route,
             pathNetwork = campus.pathNetwork,
             userFix = campus.fix,
+            headingDegrees = campus.headingDegrees,
             travelMode = campus.travelMode,
+            selectedId = target.id,
             selectedName = target.name,
+            onSelect = { campus.selectTarget(it) },
             onModeChange = { campus.chooseTravelMode(it) },
             onClose = { campus.mode = AppMode.LIST },
             onStartAr = {
