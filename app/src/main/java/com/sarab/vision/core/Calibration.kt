@@ -63,7 +63,7 @@ data class CalibrationState(
 private const val REQUIRED_SWEEP_DEG = 55.0
 
 /** Minimum time on the wave step, so it never flashes past unread. */
-private const val MIN_WAVE_MS = 2_000L
+private const val MIN_WAVE_MS = 1_200L
 
 /**
  * After this long the wave step gives up waiting for perfect conditions.
@@ -91,14 +91,21 @@ fun nextCalibrationState(
 ): CalibrationState = when (current) {
 
     CalibrationStep.WAVE -> {
-        // Ready when the sensors actually say so, with a swept-far-enough
-        // fallback for devices whose compass never reports "reliable".
+        // The requirement is the OUTCOME, not the ritual.
+        //
+        // This used to demand a 55-degree sweep AND reliable sensors AND a
+        // minimum time, all at once. But the sweep exists only in order to
+        // make the sensors ready -- so once they are ready, continuing to ask
+        // for the wave is asking the user to perform a ceremony for its own
+        // sake. The sweep survives purely as a fallback for devices whose
+        // magnetometer never reports itself reliable no matter what.
         val sweptEnough = input.movedDegrees >= REQUIRED_SWEEP_DEG
         val sensorsReady = input.tracking && input.compassReliable
         val waitedLongEnough = input.elapsedMs >= MIN_WAVE_MS
         val timedOut = input.elapsedMs >= MAX_WAVE_MS
 
-        val satisfied = (waitedLongEnough && sweptEnough && sensorsReady) || timedOut
+        val satisfied = timedOut ||
+            (waitedLongEnough && (sensorsReady || (sweptEnough && input.tracking)))
 
         if (satisfied) {
             CalibrationState(
@@ -136,6 +143,34 @@ fun nextCalibrationState(
     }
 
     CalibrationStep.DONE -> CalibrationState(CalibrationStep.DONE, 1f, "", "")
+}
+
+/**
+ * Where the start-up sequence should begin -- if it needs to run at all.
+ *
+ * ## Why this exists
+ *
+ * The sequence was unconditional: every single time the camera opened, the
+ * user was told to wave the phone, even when Android's sensor fusion had the
+ * compass calibrated already and ARCore was tracking from the first frame.
+ * That turns a diagnostic into a superstition, and users learn to swipe past
+ * it without reading -- which means the one time it genuinely matters, it is
+ * ignored too.
+ *
+ * Nothing here calibrates anything. The magnetometer is calibrated
+ * continuously by the operating system, across every app on the phone; all
+ * this decides is whether the user needs to be asked to move the device so
+ * the OS can gather the readings it needs.
+ */
+fun initialCalibrationStep(input: CalibrationInput): CalibrationStep = when {
+    // Already tracking, compass trusted, phone already up: say nothing.
+    input.tracking && input.compassReliable && input.tilt <= RAISED_TILT ->
+        CalibrationStep.DONE
+
+    // Sensors fine, phone still flat in the hand: just ask for the easy part.
+    input.tracking && input.compassReliable -> CalibrationStep.RAISE
+
+    else -> CalibrationStep.WAVE
 }
 
 /**

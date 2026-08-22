@@ -151,4 +151,90 @@ class CalibrationTest {
         tracker.reset()
         assertEquals(0.0, tracker.totalDegrees, 0.001)
     }
+
+    // ---- Skipping the sequence entirely ----------------------------------
+
+    @Test
+    fun `a phone that is already ready is not asked to wave anything`() {
+        // The whole sequence used to run unconditionally. Asking a user to
+        // perform a ritual the sensors do not need teaches them to dismiss it
+        // unread, which costs the one time it matters.
+        val ready = CalibrationInput(
+            tracking = true,
+            compassReliable = true,
+            tilt = 0.3f,
+            movedDegrees = 0.0,
+            elapsedMs = 0
+        )
+        assertEquals(CalibrationStep.DONE, initialCalibrationStep(ready))
+    }
+
+    @Test
+    fun `good sensors but a flat phone only asks for the raise`() {
+        val flat = CalibrationInput(
+            tracking = true,
+            compassReliable = true,
+            tilt = 0.95f,
+            movedDegrees = 0.0,
+            elapsedMs = 0
+        )
+        assertEquals(CalibrationStep.RAISE, initialCalibrationStep(flat))
+    }
+
+    @Test
+    fun `an unreliable compass still gets the full sequence`() {
+        val bad = CalibrationInput(
+            tracking = true,
+            compassReliable = false,
+            tilt = 0.3f,
+            movedDegrees = 0.0,
+            elapsedMs = 0
+        )
+        assertEquals(CalibrationStep.WAVE, initialCalibrationStep(bad))
+    }
+
+    @Test
+    fun `no tracking still gets the full sequence`() {
+        val notTracking = CalibrationInput(
+            tracking = false,
+            compassReliable = true,
+            tilt = 0.3f,
+            movedDegrees = 0.0,
+            elapsedMs = 0
+        )
+        assertEquals(CalibrationStep.WAVE, initialCalibrationStep(notTracking))
+    }
+
+    @Test
+    fun `the wave ends as soon as the sensors are ready, without a full sweep`() {
+        // The sweep exists only to make the sensors ready. Once they are,
+        // continuing to demand it is ceremony.
+        val state = nextCalibrationState(
+            CalibrationStep.WAVE,
+            CalibrationInput(
+                tracking = true,
+                compassReliable = true,
+                tilt = 0.9f,
+                movedDegrees = 0.0,
+                elapsedMs = 1_500
+            )
+        )
+        assertEquals(CalibrationStep.RAISE, state.step)
+    }
+
+    @Test
+    fun `a compass that never reports reliable still escapes via the sweep`() {
+        // Some devices never raise their accuracy flag no matter what.
+        val state = nextCalibrationState(
+            CalibrationStep.WAVE,
+            CalibrationInput(
+                tracking = true,
+                compassReliable = false,
+                tilt = 0.9f,
+                movedDegrees = 90.0,
+                elapsedMs = 1_500
+            )
+        )
+        assertEquals(CalibrationStep.RAISE, state.step)
+    }
 }

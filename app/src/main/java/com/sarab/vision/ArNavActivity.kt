@@ -56,6 +56,7 @@ import com.sarab.vision.ar.CampusArState
 import com.sarab.vision.core.CalibrationInput
 import com.sarab.vision.core.CalibrationState
 import com.sarab.vision.core.CalibrationStep
+import com.sarab.vision.core.initialCalibrationStep
 import com.sarab.vision.core.GuidanceMode
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.SignMatch
@@ -492,6 +493,9 @@ class ArNavActivity : ComponentActivity() {
      * before ARCore has tracking leaves the user staring at a camera that
      * cannot draw anything, and they blame the app rather than the pose.
      */
+    /** True until the sequence has decided whether it needs to run at all. */
+    private var calibrationEntryChecked = false
+
     private fun updateCalibration() {
         if (calibration.step == CalibrationStep.DONE) return
 
@@ -508,6 +512,21 @@ class ArNavActivity : ComponentActivity() {
             movedDegrees = sweep.totalDegrees,
             elapsedMs = now - stepStartedAt
         )
+
+        // Decide once, on the first frame that carries real sensor readings,
+        // whether any of this needs showing. A phone whose compass the OS has
+        // already calibrated and whose camera is already tracking should go
+        // straight to navigating without being told to wave anything.
+        if (!calibrationEntryChecked) {
+            calibrationEntryChecked = true
+            val entry = initialCalibrationStep(input)
+            if (entry != CalibrationStep.WAVE) {
+                calibration = nextCalibrationState(entry, input)
+                stepStartedAt = now
+                sweep.reset()
+                if (calibration.step == CalibrationStep.DONE) return
+            }
+        }
 
         val previousStep = calibration.step
         calibration = nextCalibrationState(previousStep, input)
@@ -661,6 +680,9 @@ class ArNavActivity : ComponentActivity() {
         // frame when the camera comes back.
         signReader.reset()
         signMatch = null
+        // Re-evaluate on the way back in: the phone may have been put in a
+        // pocket next to a magnet, or picked up already tracking.
+        calibrationEntryChecked = false
     }
 
     override fun onDestroy() {

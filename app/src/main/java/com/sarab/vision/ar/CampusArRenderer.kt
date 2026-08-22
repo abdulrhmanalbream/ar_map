@@ -142,16 +142,23 @@ class CampusArRenderer(
         val camera = frame.camera
         cameraRenderer.draw(frame)
 
+        // BEFORE the tracking gate, deliberately.
+        //
+        // Reading a plaque needs a camera image and nothing else -- no pose,
+        // no plane, no world anchor. Gating it behind TRACKING meant the
+        // reader was dead in exactly the conditions where ARCore struggles to
+        // track and a user most wants to ask "which building is this?":
+        // indoors, in poor light, or standing still in front of a flat wall.
+        offerFrameToSignReader(frame)
+
         val tracking = camera.trackingState == TrackingState.TRACKING
         if (!tracking) {
             onStateChanged(CampusArState.Initialising)
-            // Nothing is drawn without a trustworthy pose: a world-anchored
+            // Nothing is DRAWN without a trustworthy pose: a world-anchored
             // path drawn from a paused pose slides around the screen and
             // destroys the illusion it is really on the ground.
             return
         }
-
-        offerFrameToSignReader(frame)
 
         camera.getViewMatrix(viewMatrix, 0)
         camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100f)
