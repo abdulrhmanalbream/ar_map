@@ -56,8 +56,21 @@ import kotlin.math.hypot
  */
 private const val FLAT_THRESHOLD = 0.72f
 
-/** Hysteresis band, so a phone held near the boundary does not flap. */
-private const val FLAT_HYSTERESIS = 0.08f
+/**
+ * Hysteresis band, so a phone held near the boundary does not flap.
+ *
+ * Widened from 0.08 after a device log showed the source flipping between
+ * SCREEN_UP and CAMERA several times in a few seconds, each flip landing the
+ * heading tens of degrees away. That is a phone held at a natural walking
+ * angle sitting inside a band only 0.08 wide -- and since the two modes read
+ * different physical axes, every flip moves the drawn path. Users turned to
+ * follow it, which moved it again, and reported chasing the line in circles.
+ *
+ * 0.18 means: once flat, stay flat until clearly raised, and vice versa. The
+ * cost is that a deliberate change of grip takes slightly longer to register,
+ * which nobody notices; the benefit is that an accidental one never does.
+ */
+private const val FLAT_HYSTERESIS = 0.18f
 
 /** How far a direction must be from vertical before its bearing is trusted. */
 private const val MIN_HORIZONTAL_COMPONENT = 0.08f

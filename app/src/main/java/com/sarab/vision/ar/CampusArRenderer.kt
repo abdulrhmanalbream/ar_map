@@ -24,6 +24,15 @@ import javax.microedition.khronos.opengles.GL10
 private const val TAG = "SarabCampusAr"
 
 /**
+ * How close the destination must be before its marker is drawn, in metres.
+ *
+ * Far out the arrows carry the route on their own. A cube rendered at 180m is
+ * a handful of pixels hovering over the horizon, which reads as a rendering
+ * glitch rather than a destination.
+ */
+private const val MARKER_VISIBLE_M = 40.0
+
+/**
  * Draws the navigation path on the real ground, aimed by GPS.
  *
  * ## How this differs from the V2 renderer
@@ -127,6 +136,9 @@ class CampusArRenderer(
 
     private var startNanos = 0L
     private var lastBuiltBearing = Double.NaN
+
+    /** Whether the destination is close enough for the marker to mean anything. */
+    private var markerVisible = false
     private var lastBuiltHeading = Double.NaN
     private var lastDiagnosticMs = 0L
 
@@ -243,8 +255,10 @@ class CampusArRenderer(
         // Arrows over the ribbon: the ribbon shows where the path is, the
         // chevrons say which way to walk along it.
         arrowRenderer.draw(viewProjectionMatrix, elapsed, arrowColour, dim)
-        markerRenderer.draw(viewProjectionMatrix, markerPos, 0.35f, elapsed, false)
-        labelRenderer.draw(viewProjectionMatrix, viewMatrix, labelPos)
+        if (markerVisible) {
+            markerRenderer.draw(viewProjectionMatrix, markerPos, 0.35f, elapsed, false)
+            labelRenderer.draw(viewProjectionMatrix, viewMatrix, labelPos)
+        }
 
         onStateChanged(CampusArState.Navigating)
         logDiagnostics(bearing, heading)
@@ -325,12 +339,28 @@ class CampusArRenderer(
         pathRenderer.updatePath(points, widthMeters = 0.5f)
         arrowRenderer.updatePath(points)
 
-        markerPos[0] = endX
+        // The marker sits on the DESTINATION, not on the end of the drawn
+        // stub.
+        //
+        // It used to be pinned to wherever the visible ribbon stopped -- 12m
+        // ahead -- so it slid forward with every step and never once sat on
+        // the building. A marker that moves when you move is not marking
+        // anything. Placed at the true bearing and distance it stays nailed to
+        // the door while you walk toward it, which is the entire point.
+        //
+        // Beyond MARKER_VISIBLE_M it is hidden and the arrows carry the route
+        // alone: a cube floating at 180m is a speck that reads as a glitch.
+        val relativeToTarget = Math.toRadians(shortestDelta(headingDeg, bearingDeg))
+        val targetX = camX + (kotlin.math.sin(relativeToTarget) * targetDistanceM).toFloat()
+        val targetZ = camZ - (kotlin.math.cos(relativeToTarget) * targetDistanceM).toFloat()
+        markerVisible = targetDistanceM in 0.5..MARKER_VISIBLE_M
+
+        markerPos[0] = targetX
         markerPos[1] = y + 0.5f
-        markerPos[2] = endZ
-        labelPos[0] = endX
+        markerPos[2] = targetZ
+        labelPos[0] = targetX
         labelPos[1] = y + 1.2f
-        labelPos[2] = endZ
+        labelPos[2] = targetZ
     }
 
     /**

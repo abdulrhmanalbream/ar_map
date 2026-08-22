@@ -65,6 +65,13 @@ class HeadingProvider(private val context: Context) {
     private val smoother = CircularSmoother(alpha = 0.18)
     private var wasFlat = false
 
+    /** The last heading handed to [onHeading]; the baseline the gate uses. */
+    private var lastReported: Double? = null
+
+    /** Diagnostics only: updates delivered in the current second. */
+    private var reportsThisSecond = 0
+    private var lastRateLogMs = 0L
+
     private val listener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
@@ -106,6 +113,7 @@ class HeadingProvider(private val context: Context) {
         }
 
         smoother.reset()
+        lastReported = null
         sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
         listening = true
         return true
@@ -136,12 +144,43 @@ class HeadingProvider(private val context: Context) {
         val trueNorth = (magnetic + magneticDeclination + 360.0) % 360.0
         val smoothed = smoother.next(trueNorth)
 
-        // Only notify on a meaningful change, so the UI is not recomposed at
-        // sensor rate on a device that already runs hot.
-        val previous = headingDegrees
         headingDegrees = smoothed
+
+        // Measured against the last value REPORTED, not the last sample.
+        //
+        // Comparing consecutive samples looks equivalent and is not. The
+        // sensor fires ~50 times a second, so a quarter turn taken over five
+        // seconds moves 0.36 degrees per sample -- under the threshold every
+        // single time. Nothing was ever sent, the drawn path kept pointing
+        // where the phone USED to face, and turning to follow it moved it
+        // again. Users reported chasing the line through a full circle.
+        //
+        // Against the last reported value those fractions accumulate until
+        // they cross the threshold together, so a slow turn reports smoothly
+        // and a still phone stays quiet. Nothing else here changes: the
+        // smoothing, and the flat-versus-raised handling that makes the
+        // compass work in both orientations, are untouched.
+        val previous = lastReported
         if (previous == null || abs(relativeBearing(previous, smoothed)) > 0.5) {
+            lastReported = smoothed
+            reportsThisSecond++
             onHeading?.invoke(smoothed)
+        }
+
+        // One debug line a second: how many updates the UI actually received,
+        // and which orientation mode produced them. Purely diagnostic, but
+        // without it there is no way to tell a frozen compass from a compass
+        // with nothing to say -- and telling those apart is exactly what was
+        // needed to find this bug.
+        val now = System.currentTimeMillis()
+        if (now - lastRateLogMs >= 1_000) {
+            Log.d(
+                TAG,
+                "heading %.1f deg, %d updates/s, source=%s"
+                    .format(smoothed, reportsThisSecond, source)
+            )
+            lastRateLogMs = now
+            reportsThisSecond = 0
         }
     }
 

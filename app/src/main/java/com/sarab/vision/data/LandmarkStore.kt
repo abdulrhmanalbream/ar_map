@@ -26,7 +26,7 @@ private const val SEED_STAMP = "seed_version"
  * seed entries merge into an existing survey without touching what the user
  * recorded themselves.
  */
-private const val CURRENT_SEED_VERSION = 3
+private const val CURRENT_SEED_VERSION = 4
 
 /**
  * Offline storage for captured landmarks.
@@ -85,13 +85,22 @@ class LandmarkStore(private val context: Context) {
         // A landmark already saved on the phone keeps its own coordinate and
         // name, but doors are new data that no existing record can have, and
         // without them routing keeps aiming at the middle of the building.
+        //
+        // Unioned by id rather than filled in only when empty: a building can
+        // gain a SECOND door in a later release, and "only if it has none"
+        // would silently drop it on every phone that already had the first.
         val seedById = seed.associateBy { it.id }
         val updated = existing.map { own ->
-            val fromSeed = seedById[own.id]
-            if (own.entrances.isEmpty() && fromSeed != null && fromSeed.entrances.isNotEmpty()) {
-                own.copy(entrances = fromSeed.entrances, signTexts = fromSeed.signTexts)
-            } else {
+            val fromSeed = seedById[own.id] ?: return@map own
+            val ownDoorIds = own.entrances.mapTo(HashSet()) { it.id }
+            val newDoors = fromSeed.entrances.filterNot { it.id in ownDoorIds }
+            if (newDoors.isEmpty() && own.signTexts.isNotEmpty()) {
                 own
+            } else {
+                own.copy(
+                    entrances = own.entrances + newDoors,
+                    signTexts = own.signTexts.ifEmpty { fromSeed.signTexts }
+                )
             }
         }
         markSeedApplied()
