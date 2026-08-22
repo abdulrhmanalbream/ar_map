@@ -8,7 +8,9 @@ import com.google.ar.core.Plane
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.sarab.vision.core.Vec3
+import com.sarab.vision.core.PathHazard
 import com.sarab.vision.core.groundPathLength
+import com.sarab.vision.core.pathHazardFor
 import com.sarab.vision.core.resamplePath
 import com.sarab.vision.core.routeGroundPath
 import com.sarab.vision.render.ArrowRenderer
@@ -103,6 +105,17 @@ class CampusArRenderer(
     @Volatile
     var displayRotationDegrees: Int = 0
 
+    /** True when the route crosses stairs within the visible stretch. */
+    @Volatile
+    var stairsAhead: Boolean = false
+
+    /** What the visible stretch is, so the UI can warn in step with the path. */
+    @Volatile
+    var hazard: PathHazard = PathHazard.CLEAR
+
+    private var pathColour: FloatArray = PathHazard.CLEAR.ribbonColour
+    private var arrowColour: FloatArray = PathHazard.CLEAR.arrowColour
+
     /** Height of the detected floor relative to the camera, in metres. */
     private var floorY: Float? = null
 
@@ -172,14 +185,22 @@ class CampusArRenderer(
         offerFrameToSignReader(frame)
 
         val tracking = camera.trackingState == TrackingState.TRACKING
-        if (!tracking) {
-            onStateChanged(CampusArState.Initialising)
-            // Nothing is DRAWN without a trustworthy pose: a world-anchored
-            // path drawn from a paused pose slides around the screen and
-            // destroys the illusion it is really on the ground.
-            return
-        }
+        if (!tracking) onStateChanged(CampusArState.Initialising)
 
+        // The path is drawn whether or not ARCore has tracking.
+        //
+        // It used to return here, and outdoors that meant the path vanished
+        // constantly: pointed down a wide road at a building 179m away there
+        // is almost no near texture for ARCore to lock onto, so tracking drops
+        // every few seconds. A user watching the route disappear and reappear
+        // does not think "tracking lost", they think the app is broken.
+        //
+        // Nothing about the DIRECTION needs ARCore. It comes from the compass
+        // and a GPS bearing. ARCore contributes the floor height, and there is
+        // already a fallback for that. The view and projection matrices come
+        // from the same pose the path is positioned against, so even a stale
+        // pose renders self-consistently -- the path may drift against the
+        // world, but it stays in front of the camera pointing the right way.
         camera.getViewMatrix(viewMatrix, 0)
         camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100f)
         Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
@@ -214,10 +235,14 @@ class CampusArRenderer(
 
         val elapsed = (System.nanoTime() - startNanos) / 1_000_000_000f
 
-        pathRenderer.draw(viewProjectionMatrix, elapsed)
+        // Faded while tracking is lost: still visible, but honestly saying
+        // the placement is approximate rather than pretending otherwise.
+        val dim = if (tracking) 1f else 0.55f
+
+        pathRenderer.draw(viewProjectionMatrix, elapsed, pathColour, dim)
         // Arrows over the ribbon: the ribbon shows where the path is, the
         // chevrons say which way to walk along it.
-        arrowRenderer.draw(viewProjectionMatrix, elapsed)
+        arrowRenderer.draw(viewProjectionMatrix, elapsed, arrowColour, dim)
         markerRenderer.draw(viewProjectionMatrix, markerPos, 0.35f, elapsed, false)
         labelRenderer.draw(viewProjectionMatrix, viewMatrix, labelPos)
 
@@ -288,6 +313,14 @@ class CampusArRenderer(
             endX = camX + dirX * length
             endZ = camZ + dirZ * length
         }
+
+        // Colour the stretch by what is actually on it. Recomputed here rather
+        // than per frame because it only changes when the geometry does.
+        val cameraRelative = points.map { Vec3(it.x - camX, it.y, it.z - camZ) }
+        val current = pathHazardFor(cameraRelative, stairsAhead)
+        hazard = current
+        pathColour = current.ribbonColour
+        arrowColour = current.arrowColour
 
         pathRenderer.updatePath(points, widthMeters = 0.5f)
         arrowRenderer.updatePath(points)

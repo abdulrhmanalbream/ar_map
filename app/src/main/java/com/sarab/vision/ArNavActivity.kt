@@ -61,6 +61,7 @@ import com.sarab.vision.core.GuidanceMode
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.SignMatch
 import com.sarab.vision.core.distanceMeters
+import com.sarab.vision.core.stairsAhead
 import com.sarab.vision.ar.SignReader
 import com.sarab.vision.core.SweepTracker
 import com.sarab.vision.core.nextCalibrationState
@@ -570,6 +571,9 @@ class ArNavActivity : ComponentActivity() {
         // A* actually found rather than pointing through buildings.
         renderer.userPosition = campus.fix?.position
         renderer.routePoints = campus.route?.points.orEmpty()
+        renderer.stairsAhead = campus.fix?.position?.let {
+            stairsAhead(campus.route, campus.pathNetwork, it)
+        } ?: false
         renderer.targetBearingDeg = campus.targetBearing()
         renderer.deviceHeadingDeg = campus.headingDegrees
         renderer.targetName = campus.target?.name

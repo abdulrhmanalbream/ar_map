@@ -185,7 +185,20 @@ class PathRenderer {
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 
-    fun draw(mvpMatrix: FloatArray, timeSeconds: Float) {
+    /**
+     * @param rgba path colour. Yellow for a normal stretch, orange through a
+     *   turn, red where there are stairs -- the same language road signs use,
+     *   so it needs no explaining.
+     * @param dim scales opacity. Used when ARCore has lost tracking: the path
+     *   is still drawn, because vanishing reads as a broken app, but it is
+     *   faded to say the placement is approximate.
+     */
+    fun draw(
+        mvpMatrix: FloatArray,
+        timeSeconds: Float,
+        rgba: FloatArray = floatArrayOf(1f, 0.85f, 0.1f, 0.92f),
+        dim: Float = 1f
+    ) {
         if (vertexCount == 0 || !buffersReady) return
 
         GLES20.glUseProgram(program)
@@ -198,7 +211,7 @@ class PathRenderer {
         GLES20.glUniformMatrix4fv(mvpUniform, 1, false, mvpMatrix, 0)
         GLES20.glUniform1f(timeUniform, timeSeconds)
         GLES20.glUniform1f(repeatsUniform, pulseRepeats)
-        GLES20.glUniform4f(colorUniform, 0.31f, 0.76f, 0.97f, 0.9f)
+        GLES20.glUniform4f(colorUniform, rgba[0], rgba[1], rgba[2], rgba[3] * dim)
 
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexVbo[0])
         GLES20.glVertexAttribPointer(positionAttrib, 3, GLES20.GL_FLOAT, false, 0, 0)

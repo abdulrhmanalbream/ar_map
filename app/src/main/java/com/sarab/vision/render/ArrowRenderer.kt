@@ -183,7 +183,12 @@ class ArrowRenderer {
         vertexCount = count * 3
     }
 
-    fun draw(viewProjection: FloatArray, timeSeconds: Float) {
+    fun draw(
+        viewProjection: FloatArray,
+        timeSeconds: Float,
+        rgba: FloatArray = floatArrayOf(1f, 1f, 1f, 0.95f),
+        dim: Float = 1f
+    ) {
         if (vertexCount == 0 || program == 0) return
         val positions = vertexBuffer ?: return
         val phases = phaseBuffer ?: return
@@ -197,7 +202,7 @@ class ArrowRenderer {
 
         GLES20.glUniformMatrix4fv(mvpUniform, 1, false, viewProjection, 0)
         GLES20.glUniform1f(timeUniform, timeSeconds)
-        GLES20.glUniform4f(colorUniform, 1f, 1f, 1f, 0.95f)
+        GLES20.glUniform4f(colorUniform, rgba[0], rgba[1], rgba[2], rgba[3] * dim)
 
         positions.position(0)
         GLES20.glEnableVertexAttribArray(positionAttrib)
