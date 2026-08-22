@@ -297,9 +297,16 @@ class ArNavActivity : ComponentActivity() {
                 }
             )
 
-            // Direction arrow, shown whenever the target is not straight ahead.
+            // The "turn this way" arrow, shown ONLY when the destination is
+            // off screen entirely.
+            //
+            // Once the path is visible on the ground it says everything this
+            // does and says it better, so leaving both up puts a flat overlay
+            // arrow on top of the thing it is describing. This is the fallback
+            // for when the user is facing the wrong way and there is nothing
+            // to look at yet.
             (guidance as? GuidanceMode.Compass)?.let { c ->
-                if (kotlin.math.abs(c.relativeDegrees) > 20) {
+                if (kotlin.math.abs(c.relativeDegrees) > 55) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -550,6 +557,10 @@ class ArNavActivity : ComponentActivity() {
     /** Pushes the latest GPS-derived aim into the renderer. */
     private fun syncRenderer() {
         renderer.signCandidates = signCandidatesNow()
+        // Feed the real route through, so the ground ribbon follows the path
+        // A* actually found rather than pointing through buildings.
+        renderer.userPosition = campus.fix?.position
+        renderer.routePoints = campus.route?.points.orEmpty()
         renderer.targetBearingDeg = campus.targetBearing()
         renderer.deviceHeadingDeg = campus.headingDegrees
         renderer.targetName = campus.target?.name

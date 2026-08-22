@@ -9,6 +9,8 @@ import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.sarab.vision.core.Vec3
 import com.sarab.vision.core.groundPathLength
+import com.sarab.vision.core.resamplePath
+import com.sarab.vision.core.routeGroundPath
 import com.sarab.vision.render.ArrowRenderer
 import com.sarab.vision.render.CameraBackgroundRenderer
 import com.sarab.vision.render.LabelRenderer
@@ -68,6 +70,19 @@ class CampusArRenderer(
     @Volatile
     var targetName: String? = null
 
+    /**
+     * The actual route geometry, in world coordinates.
+     *
+     * When present the ground ribbon follows THIS -- turns and all -- instead
+     * of pointing straight at the destination through whatever is in the way.
+     */
+    @Volatile
+    var routePoints: List<com.sarab.vision.core.LatLng> = emptyList()
+
+    /** Where the user is, needed to place the route relative to the camera. */
+    @Volatile
+    var userPosition: com.sarab.vision.core.LatLng? = null
+
     private var lastLabelText: String? = null
 
     /**
@@ -99,6 +114,7 @@ class CampusArRenderer(
 
     private var startNanos = 0L
     private var lastBuiltBearing = Double.NaN
+    private var lastBuiltHeading = Double.NaN
     private var lastDiagnosticMs = 0L
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -121,6 +137,7 @@ class CampusArRenderer(
         startNanos = System.nanoTime()
         lastLabelText = null
         lastBuiltBearing = Double.NaN
+        lastBuiltHeading = Double.NaN
         session?.setCameraTextureName(cameraRenderer.textureId)
     }
 
@@ -180,11 +197,17 @@ class CampusArRenderer(
         // Rebuild only when the bearing has actually moved. Rebuilding every
         // frame re-uploads GPU buffers 30 times a second for geometry that
         // barely changes, which is what overheated the phone before.
+        // Rebuild when either the bearing OR the heading has moved: the route
+        // is drawn relative to where the phone is pointing, so a turn changes
+        // the geometry even when the destination has not moved at all.
         if (lastBuiltBearing.isNaN() ||
-            kotlin.math.abs(shortestDelta(lastBuiltBearing, bearing)) > 1.5
+            kotlin.math.abs(shortestDelta(lastBuiltBearing, bearing)) > 1.5 ||
+            lastBuiltHeading.isNaN() ||
+            kotlin.math.abs(shortestDelta(lastBuiltHeading, heading)) > 1.5
         ) {
             rebuildPath(bearing, heading, camera.pose.tx(), camera.pose.tz())
             lastBuiltBearing = bearing
+            lastBuiltHeading = heading
         }
 
         refreshLabel()
@@ -223,20 +246,52 @@ class CampusArRenderer(
         val length = groundPathLength(targetDistanceM).toFloat()
         if (length <= 0f) return
 
-        // Start just ahead so the ribbon is not underfoot.
-        val startOffset = 0.8f
-        val points = ArrayList<Vec3>(24)
-        val steps = 24
-        for (i in 0..steps) {
-            val t = startOffset + (length - startOffset) * (i.toFloat() / steps)
-            points.add(Vec3(camX + dirX * t, y, camZ + dirZ * t))
+        // Prefer the REAL route. A straight ribbon along the bearing is a
+        // pointer, not a path: it ignores every turn and sends the user into
+        // whatever stands between them and the building.
+        val here = userPosition
+        val realPath = if (here != null && routePoints.size >= 2) {
+            resamplePath(
+                routeGroundPath(
+                    userPosition = here,
+                    routePoints = routePoints,
+                    headingDeg = headingDeg,
+                    maxVisibleMeters = length.toDouble()
+                ),
+                spacingMeters = 0.8f
+            )
+        } else {
+            emptyList()
         }
+
+        val points: List<Vec3>
+        val endX: Float
+        val endZ: Float
+
+        if (realPath.size >= 2) {
+            // routeGroundPath returns camera-relative offsets; lift them onto
+            // the detected floor and into ARCore's world position.
+            points = realPath.map { Vec3(camX + it.x, y, camZ + it.z) }
+            endX = points.last().x
+            endZ = points.last().z
+        } else {
+            // No routable network here yet: fall back to the straight stub so
+            // the view still says which way to walk.
+            val startOffset = 0.8f
+            val straight = ArrayList<Vec3>(25)
+            val steps = 24
+            for (i in 0..steps) {
+                val t = startOffset + (length - startOffset) * (i.toFloat() / steps)
+                straight.add(Vec3(camX + dirX * t, y, camZ + dirZ * t))
+            }
+            points = straight
+            endX = camX + dirX * length
+            endZ = camZ + dirZ * length
+        }
+
         pathRenderer.updatePath(points, widthMeters = 0.5f)
         arrowRenderer.updatePath(points)
 
-        // Marker and label at the end of the visible stub.
-        val endX = camX + dirX * length
-        val endZ = camZ + dirZ * length
         markerPos[0] = endX
         markerPos[1] = y + 0.5f
         markerPos[2] = endZ
