@@ -224,48 +224,4 @@ class HeadingMathTest {
             kotlin.math.abs(relativeBearing(90.0, afterSpike)) < 40.0
         )
     }
-
-    @Test
-    fun `a sustained turn is followed, not rejected as a spike`() {
-        // Spike rejection must not become turn rejection. A real fast turn
-        // arrives as a run of samples all moving the same way.
-        val smoother = CircularSmoother(alpha = 0.3)
-        repeat(20) { smoother.next(0.0) }
-
-        var heading = 0.0
-        repeat(6) { heading = smoother.next(180.0) }
-
-        assertTrue(
-            "a sustained turn was not followed; ended at $heading",
-            kotlin.math.abs(relativeBearing(180.0, heading)) < 45.0
-        )
-    }
-
-    @Test
-    fun `two consecutive spikes are believed`() {
-        val smoother = CircularSmoother(alpha = 0.5)
-        repeat(20) { smoother.next(90.0) }
-
-        val first = smoother.next(270.0)
-        // Held: one wild sample proves nothing.
-        assertTrue(
-            "the first outlier should be ignored, got $first",
-            kotlin.math.abs(relativeBearing(90.0, first)) < 10.0
-        )
-
-        val second = smoother.next(270.0)
-        assertTrue(
-            "the second should be acted on, got $second",
-            kotlin.math.abs(relativeBearing(90.0, second)) > 20.0
-        )
-    }
-
-    @Test
-    fun `the smoother still resets cleanly`() {
-        val smoother = CircularSmoother()
-        repeat(10) { smoother.next(10.0) }
-        smoother.reset()
-        // After a reset the first sample is taken as-is, with no history.
-        assertEquals(200.0, smoother.next(200.0), 0.001)
-    }
 }

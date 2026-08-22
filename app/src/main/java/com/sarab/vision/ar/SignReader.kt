@@ -105,7 +105,24 @@ class SignReader {
                 val lines = text.textBlocks.flatMap { block ->
                     block.lines.map { it.text }
                 }
-                settle(matchSign(lines, candidates))
+                val match = matchSign(lines, candidates)
+
+                // Logged because there is no other way to tell a reader that
+                // saw nothing from one that read the sign perfectly and failed
+                // to match it. Those need completely different fixes, and
+                // guessing between them from an empty screen wastes hours.
+                if (lines.isNotEmpty()) {
+                    Log.i(
+                        TAG,
+                        "read ${lines.size} line(s): " +
+                            lines.joinToString(" | ") { it.take(60) } +
+                            " -> " + describe(match)
+                    )
+                } else {
+                    Log.d(TAG, "no text in frame (${candidates.size} candidates)")
+                }
+
+                settle(match)
             }
             .addOnFailureListener { e ->
                 Log.w(TAG, "Recognition failed", e)
@@ -152,6 +169,15 @@ class SignReader {
         if (key == lastPublished) return
         lastPublished = key
         onResult?.invoke(settled)
+    }
+
+    private fun describe(match: SignMatch): String = when (match) {
+        is SignMatch.Found ->
+            "FOUND ${match.landmark.name} (score %.2f, margin %.2f)"
+                .format(match.score, match.margin)
+        is SignMatch.Unsure ->
+            "unsure: ${match.reason}${match.bestGuess?.let { " (guess: ${it.name})" } ?: ""}"
+        SignMatch.NoText -> "no usable text"
     }
 
     /** Forgets the current streak, e.g. when the camera is put away. */

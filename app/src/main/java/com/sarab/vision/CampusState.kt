@@ -25,8 +25,6 @@ import com.sarab.vision.core.TravelMode
 import com.sarab.vision.core.averageFixes
 import com.sarab.vision.core.routeTo
 import com.sarab.vision.core.bearingDegrees
-import com.sarab.vision.core.relativeBearing
-import kotlin.math.abs
 import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.core.stepAlongBearing
 import com.sarab.vision.core.stepTowards
@@ -47,15 +45,6 @@ private const val TAG = "SarabCampus"
  * placement is a reasonable estimate, not a survey.
  */
 private const val MANUAL_PLACEMENT_ACCURACY_M = 8f
-
-/** Heading changes smaller than this are sensor noise and are dropped. */
-private const val HEADING_EPSILON_DEG = 0.6
-
-/** Smallest tilt change worth a recomposition. */
-private const val TILT_EPSILON = 0.02f
-
-/** Minimum gap between compass-driven guidance recomputes, in ms. */
-private const val HEADING_GUIDANCE_INTERVAL_MS = 100L
 
 /** Which screen the user is on. */
 enum class AppMode { NAVIGATE, LIST, MAP, SURVEY, PATHS }
@@ -253,37 +242,13 @@ class CampusState(private val context: Context) {
             // fight the simulated turns. But when the user explicitly asks to
             // test the real compass, it wins.
             if (!demoActive || useRealHeading) {
-                // Writing every sample straight into Compose state was
-                // burning the phone. The sensor fires ~50 times a second, and
-                // each write recomposed the compass bar AND re-ran guidance,
-                // which walks every landmark and re-checks routing. Fifty
-                // times a second, forever, while ARCore already has the GPU
-                // saturated -- that is why it ran hot and why the UI felt
-                // stuck rather than smooth.
-                //
-                // Sub-degree changes are sensor noise nobody can see, so they
-                // are dropped entirely.
-                if (headingDegrees?.let { abs(relativeBearing(it, deg)) >= HEADING_EPSILON_DEG } != false) {
-                    headingDegrees = deg
-                }
-                if (compassNeedsCalibration != heading.needsCalibration) {
-                    compassNeedsCalibration = heading.needsCalibration
-                }
-
-                // Guidance is throttled separately: it is far heavier than a
-                // needle redraw and nothing it produces changes meaningfully
-                // within a tenth of a second.
-                val now = System.currentTimeMillis()
-                if (now - lastHeadingGuidanceMs >= HEADING_GUIDANCE_INTERVAL_MS) {
-                    lastHeadingGuidanceMs = now
-                    recomputeGuidance()
-                }
+                headingDegrees = deg
+                compassNeedsCalibration = heading.needsCalibration
+                recomputeGuidance()
             }
             // Tilt is a property of how the phone is physically held, so it
-            // stays live even while demo mode owns the heading. Quantised for
-            // the same reason as the heading.
-            val tilt = heading.cameraTilt
-            if (abs(tilt - cameraTilt) >= TILT_EPSILON) cameraTilt = tilt
+            // stays live even while demo mode owns the heading.
+            cameraTilt = heading.cameraTilt
         }
 
         location.onFix = { f ->
@@ -558,9 +523,6 @@ class CampusState(private val context: Context) {
 
     /** Position the current route was computed from. */
     private var lastRoutedFrom: LatLng? = null
-
-    /** When guidance last ran from a compass update. */
-    private var lastHeadingGuidanceMs = 0L
 
     // ---- Survey ---------------------------------------------------------
 

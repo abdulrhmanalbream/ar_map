@@ -256,17 +256,6 @@ class ArNavActivity : ComponentActivity() {
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            if (!campus.tour.running && !pickerVisible &&
-                calibration.step == CalibrationStep.DONE
-            ) {
-                StartTourButton(
-                    visible = true,
-                    onStart = { campus.startTour() },
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 150.dp)
-                )
-            }
 
             // The guided start-up. Sits above everything: until ARCore has
             // tracking there is nothing useful behind it, and a live-looking
@@ -297,16 +286,16 @@ class ArNavActivity : ComponentActivity() {
                 }
             )
 
-            // The "turn this way" arrow, shown ONLY when the destination is
-            // off screen entirely.
+            // The "turn this way" arrow.
             //
-            // Once the path is visible on the ground it says everything this
-            // does and says it better, so leaving both up puts a flat overlay
-            // arrow on top of the thing it is describing. This is the fallback
-            // for when the user is facing the wrong way and there is nothing
-            // to look at yet.
+            // The threshold was pushed out to 55 degrees to stop it sitting on
+            // top of the ground path. That went too far: by 30 degrees off the
+            // path has already slid out of frame, so the user was left with
+            // nothing to follow at exactly the angle where they needed it
+            // most. 25 keeps it out of the way when the path is visible and
+            // present when it is not.
             (guidance as? GuidanceMode.Compass)?.let { c ->
-                if (kotlin.math.abs(c.relativeDegrees) > 55) {
+                if (kotlin.math.abs(c.relativeDegrees) > 25) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -363,6 +352,26 @@ class ArNavActivity : ComponentActivity() {
                             .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
+                }
+
+                // Inside the column, below the status row.
+                //
+                // This used to float at a hardcoded 150dp from the top of the
+                // screen, which put it straight on top of the back button and
+                // the status text on this device -- the offset happened to
+                // match whatever inset the phone it was written against had.
+                // Laying it out in the flow means it cannot collide with them
+                // on any device.
+                if (!campus.tour.running && !pickerVisible &&
+                    calibration.step == CalibrationStep.DONE
+                ) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(modifier = Modifier.padding(horizontal = 14.dp)) {
+                        StartTourButton(
+                            visible = true,
+                            onStart = { campus.startTour() }
+                        )
+                    }
                 }
             }
 
