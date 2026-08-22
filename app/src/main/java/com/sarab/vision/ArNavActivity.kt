@@ -57,6 +57,10 @@ import com.sarab.vision.core.CalibrationInput
 import com.sarab.vision.core.CalibrationState
 import com.sarab.vision.core.CalibrationStep
 import com.sarab.vision.core.GuidanceMode
+import com.sarab.vision.core.Landmark
+import com.sarab.vision.core.SignMatch
+import com.sarab.vision.core.distanceMeters
+import com.sarab.vision.ar.SignReader
 import com.sarab.vision.core.SweepTracker
 import com.sarab.vision.core.nextCalibrationState
 import com.sarab.vision.ui.CalibrationOverlay
@@ -68,6 +72,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.sarab.vision.ui.CompassBar
 import com.sarab.vision.ui.DestinationPicker
 import com.sarab.vision.ui.DirectionArrow
+import com.sarab.vision.ui.SignOverlay
 import com.sarab.vision.ui.StartTourButton
 import com.sarab.vision.ui.TourOverlay
 import java.util.EnumSet
@@ -107,6 +112,18 @@ class ArNavActivity : ComponentActivity() {
     /** The destination sheet, shown over the camera. */
     private var pickerVisible by mutableStateOf(false)
 
+    /**
+     * What the camera has read off a building plaque, if anything.
+     *
+     * Shown as information, never acted on automatically: the buildings here
+     * are identical enough that a wrong confident answer would be worse than
+     * no answer, and re-targeting navigation on a misread would be worse
+     * still.
+     */
+    private var signMatch by mutableStateOf<SignMatch?>(null)
+
+    private val signReader = SignReader()
+
     // ---- Guided start-up -------------------------------------------------
 
     private var calibration by mutableStateOf(
@@ -139,6 +156,11 @@ class ArNavActivity : ComponentActivity() {
             campus.landmarks.firstOrNull { it.id == id }?.let { campus.selectTarget(it) }
         }
 
+        signReader.onResult = { result ->
+            // Arrives on an ML Kit worker thread; Compose state must be
+            // written from the main thread.
+            runOnUiThread { signMatch = result }
+        }
         renderer = CampusArRenderer(onStateChanged = { state ->
             runOnUiThread {
                 arState = state
@@ -155,6 +177,9 @@ class ArNavActivity : ComponentActivity() {
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
+
+        renderer.signReader = signReader
+        renderer.displayRotationDegrees = 0
 
         // Back must not dump the user straight out of the app.
         //
@@ -333,18 +358,41 @@ class ArNavActivity : ComponentActivity() {
                 }
             }
 
-            // Ambiguity takes over the bottom when GPS cannot decide.
+            // The bottom stack: what the camera read, then what to do about it.
             val ambiguous = guidance as? GuidanceMode.Ambiguous
-            if (ambiguous != null) {
+            val signResolved = signMatch is SignMatch.Found
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+            ) {
+                // A read plaque sits above everything: it is the most specific
+                // thing the app knows, and on this campus it is the only thing
+                // that separates one college from its identical neighbour.
+                if (!pickerVisible) {
+                    SignOverlay(
+                        match = signMatch,
+                        currentTargetId = target?.id,
+                        onNavigateTo = {
+                            campus.selectTarget(it)
+                            signMatch = null
+                        },
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+                }
+
+            // Ambiguity takes over the bottom when GPS cannot decide -- unless
+            // the camera already settled it, in which case asking would be
+            // asking a question the app can already answer.
+            if (ambiguous != null && !signResolved) {
                 AmbiguityPrompt(
                     candidates = ambiguous.candidates,
-                    onPick = { campus.selectTarget(it) },
-                    modifier = Modifier.align(Alignment.BottomCenter)
+                    onPick = { campus.selectTarget(it) }
                 )
-            } else if (!pickerVisible) {
+            } else if (!pickerVisible && ambiguous == null) {
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         // navigationBars padding keeps the card clear of the
                         // gesture bar, which otherwise swallows its buttons.
@@ -396,6 +444,7 @@ class ArNavActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -470,8 +519,18 @@ class ArNavActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * How far away a building can be and still be worth reading a sign for.
+     *
+     * Wide enough to cover the whole cluster of neighbouring colleges, narrow
+     * enough that the rare-word weighting is computed against the handful of
+     * buildings actually in front of the user rather than the entire campus.
+     */
+    private val signCandidateRangeM = 120.0
+
     /** Pushes the latest GPS-derived aim into the renderer. */
     private fun syncRenderer() {
+        renderer.signCandidates = signCandidatesNow()
         renderer.targetBearingDeg = campus.targetBearing()
         renderer.deviceHeadingDeg = campus.headingDegrees
         renderer.targetName = campus.target?.name
@@ -482,6 +541,19 @@ class ArNavActivity : ComponentActivity() {
             is GuidanceMode.Ambiguous -> g.distanceMeters
             else -> 0.0
         }
+    }
+
+    /**
+     * Buildings close enough to be the one in view.
+     *
+     * With no fix, every landmark is a candidate: the reader still works, it
+     * just has more names to discriminate between.
+     */
+    private fun signCandidatesNow(): List<Landmark> {
+        val here = campus.fix?.position?.takeIf { it.isValid } ?: return campus.landmarks.toList()
+        return campus.landmarks.filter {
+            distanceMeters(here, it.position) <= signCandidateRangeM
+        }.ifEmpty { campus.landmarks.toList() }
     }
 
     private fun ensureSessionAndResume() {
@@ -585,9 +657,15 @@ class ArNavActivity : ComponentActivity() {
             surfaceView.onPause()
             session?.pause()
         }
+        // Forget the streak: whatever was in frame is not what will be in
+        // frame when the camera comes back.
+        signReader.reset()
+        signMatch = null
     }
 
     override fun onDestroy() {
+        signReader.close()
+        renderer.signReader = null
         renderer.session = null
         session?.close()
         session = null

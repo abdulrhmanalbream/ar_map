@@ -14,6 +14,18 @@ import java.io.File
 private const val TAG = "SarabLandmarks"
 private const val FILE_NAME = "landmarks.json"
 private const val PHOTO_DIR = "landmark_photos"
+private const val SEED_STAMP = "seed_version"
+
+/**
+ * Bump when assets/landmarks.json gains entries that existing installs need.
+ *
+ * Seeding only on first run is not enough. Any phone that has already opened
+ * the app has a landmarks.json, so new bundled campus data would never reach
+ * it -- the update would install and appear to change nothing. This lets new
+ * seed entries merge into an existing survey without touching what the user
+ * recorded themselves.
+ */
+private const val CURRENT_SEED_VERSION = 2
 
 /**
  * Offline storage for captured landmarks.
@@ -34,7 +46,10 @@ class LandmarkStore(private val context: Context) {
     val photoDir: File
         get() = File(context.filesDir, PHOTO_DIR).apply { if (!exists()) mkdirs() }
 
-    /** Loads all landmarks, falling back to bundled seed data on first run. */
+    private val seedStampFile: File
+        get() = File(context.filesDir, SEED_STAMP)
+
+    /** Loads all landmarks, merging in any bundled seed data not yet applied. */
     fun load(): List<Landmark> {
         if (!file.exists()) {
             val seeded = loadSeedFromAssets()
@@ -42,10 +57,11 @@ class LandmarkStore(private val context: Context) {
                 Log.i(TAG, "Seeded ${seeded.size} landmarks from assets")
                 save(seeded)
             }
+            markSeedApplied()
             return seeded
         }
 
-        return try {
+        val existing = try {
             parse(file.readText())
         } catch (e: Exception) {
             // Never let a corrupt file brick the app -- a survey is
@@ -53,6 +69,29 @@ class LandmarkStore(private val context: Context) {
             Log.e(TAG, "Could not read landmarks; starting empty", e)
             emptyList()
         }
+
+        if (appliedSeedVersion() >= CURRENT_SEED_VERSION) return existing
+
+        // Merge by id, and let anything already on the device win. A landmark
+        // the user surveyed standing at the door is worth more than a
+        // coordinate shipped in the APK, so an update must never overwrite it.
+        val known = existing.mapTo(HashSet()) { it.id }
+        val additions = loadSeedFromAssets().filterNot { it.id in known }
+        markSeedApplied()
+
+        if (additions.isEmpty()) return existing
+
+        val merged = existing + additions
+        Log.i(TAG, "Merged ${additions.size} new seed landmarks (v$CURRENT_SEED_VERSION)")
+        save(merged)
+        return merged
+    }
+
+    private fun appliedSeedVersion(): Int =
+        runCatching { seedStampFile.readText().trim().toInt() }.getOrDefault(0)
+
+    private fun markSeedApplied() {
+        runCatching { seedStampFile.writeText(CURRENT_SEED_VERSION.toString()) }
     }
 
     fun save(landmarks: List<Landmark>) {

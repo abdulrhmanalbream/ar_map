@@ -68,6 +68,24 @@ class CampusArRenderer(
 
     private var lastLabelText: String? = null
 
+    /**
+     * Reads the plaque on the building in front of the camera.
+     *
+     * Optional on purpose: if it is never set, or its model fails to load,
+     * navigation carries on exactly as before. A recognition extra must never
+     * be able to take the camera down with it.
+     */
+    @Volatile
+    var signReader: SignReader? = null
+
+    /** Buildings the sign reader should consider. Set from GPS proximity. */
+    @Volatile
+    var signCandidates: List<com.sarab.vision.core.Landmark> = emptyList()
+
+    /** Display rotation, needed to hand ML Kit a correctly oriented image. */
+    @Volatile
+    var displayRotationDegrees: Int = 0
+
     /** Height of the detected floor relative to the camera, in metres. */
     private var floorY: Float? = null
 
@@ -132,6 +150,8 @@ class CampusArRenderer(
             // destroys the illusion it is really on the ground.
             return
         }
+
+        offerFrameToSignReader(frame)
 
         camera.getViewMatrix(viewMatrix, 0)
         camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100f)
@@ -209,6 +229,27 @@ class CampusArRenderer(
         labelPos[0] = endX
         labelPos[1] = y + 1.2f
         labelPos[2] = endZ
+    }
+
+    /**
+     * Hands the current camera image to the sign reader.
+     *
+     * acquireCameraImage throws whenever the image is not ready, which is
+     * routine rather than exceptional, so a failure here is silent. The reader
+     * owns closing the image: ARCore's pool is small and a leaked image stalls
+     * the whole session within seconds.
+     */
+    private fun offerFrameToSignReader(frame: com.google.ar.core.Frame) {
+        val reader = signReader ?: return
+        val candidates = signCandidates
+        if (candidates.isEmpty()) return
+
+        try {
+            reader.offer(frame.acquireCameraImage(), displayRotationDegrees, candidates)
+        } catch (e: Throwable) {
+            // NotYetAvailableException most of the time. Not worth a log line
+            // at this rate, and never worth interrupting the draw.
+        }
     }
 
     /**

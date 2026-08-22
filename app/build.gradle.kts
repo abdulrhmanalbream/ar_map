@@ -97,5 +97,16 @@ dependencies {
     // Costs roughly 6MB of APK; worth it for a real map.
     implementation("org.maplibre.gl:android-sdk:11.13.5")
 
+    // On-device text recognition, used to read the name off a building's
+    // entrance plaque. The colleges here are visually identical, so the sign
+    // is the only thing that separates them.
+    //
+    // The BUNDLED variant is deliberate: the play-services variant downloads
+    // its model on first use, and an app whose whole promise is "works with no
+    // connection" cannot have a feature that silently needs one. Costs roughly
+    // 4MB. Latin script only -- ML Kit has no Arabic model -- but every plaque
+    // on this campus carries an English line as well.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+
     testImplementation("junit:junit:4.13.2")
 }
