@@ -111,6 +111,13 @@ class LandmarkStore(private val context: Context) {
                 for (j in 0 until a.length()) amenities.add(a.getString(j))
             }
 
+            val signs = mutableListOf<String>()
+            o.optJSONArray("signs")?.let { a ->
+                for (j in 0 until a.length()) {
+                    a.optString(j).takeIf { it.isNotBlank() }?.let(signs::add)
+                }
+            }
+
             val photos = mutableListOf<LandmarkPhoto>()
             o.optJSONArray("photos")?.let { a ->
                 for (j in 0 until a.length()) {
@@ -152,7 +159,8 @@ class LandmarkStore(private val context: Context) {
                     amenities = amenities,
                     photos = photos,
                     capturedAccuracyM = o.optDouble("accuracy", 0.0).toFloat(),
-                    placedManually = o.optBoolean("manual", false)
+                    placedManually = o.optBoolean("manual", false),
+                    signTexts = signs
                 )
             )
         }
@@ -173,6 +181,7 @@ class LandmarkStore(private val context: Context) {
                     put("hours", l.hours)
                     put("accuracy", l.capturedAccuracyM.toDouble())
                     put("manual", l.placedManually)
+                    put("signs", JSONArray(l.signTexts))
                     put("amenities", JSONArray(l.amenities))
                     put(
                         "photos",

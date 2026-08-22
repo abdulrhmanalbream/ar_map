@@ -39,7 +39,20 @@ data class Landmark(
      * when a route later sends someone to the wrong door this is the first
      * thing anyone needs to know.
      */
-    val placedManually: Boolean = false
+    val placedManually: Boolean = false,
+    /**
+     * The text on this building's entrance plaque, as it actually appears.
+     *
+     * This is what makes the buildings distinguishable. On this campus the
+     * facades are near-identical sandstone with the same pointed arches, and
+     * no amount of image similarity will separate them -- but every entrance
+     * carries a high-contrast plaque naming the college in Arabic and English,
+     * mounted in the same place on every building.
+     *
+     * Stored verbatim, misspellings included: OCR reads what is on the wall,
+     * not what should have been written there.
+     */
+    val signTexts: List<String> = emptyList()
 ) {
     /** Primary photo, used for list thumbnails and the detail card header. */
     val primaryPhoto: LandmarkPhoto?

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "lm-shariah",
+    "name": "كلية الشريعة",
+    "category": "FACULTY",
+    "lat": 24.4808111,
+    "lon": 39.5596617,
+    "detail": "مبنى مرتفع من ستة أدوار، يقع منفرداً عبر الشارع عن مجمع كليات القرآن والحديث والدعوة.",
+    "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
+    "accuracy": 15.0,
+    "manual": true,
+    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "signs": ["كلية الشريعة", "Faculty of Shariah"],
+    "photos": []
+  },
+  {
+    "id": "lm-dawah",
+    "name": "كلية الدعوة وأصول الدين",
+    "category": "FACULTY",
+    "lat": 24.4819129,
+    "lon": 39.5599319,
+    "detail": "الكلية الغربية في المجمع، الأقرب إلى كلية الشريعة.",
+    "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
+    "accuracy": 15.0,
+    "manual": true,
+    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "signs": [
+      "كلية الدعوة وأصول الدين",
+      "College of Islamic Propogation and Principles of Religion",
+      "College of Islamic Propagation and Principles of Religion"
+    ],
+    "photos": []
+  },
+  {
+    "id": "lm-hadith",
+    "name": "كلية الحديث الشريف والدراسات الإسلامية",
+    "category": "FACULTY",
+    "lat": 24.4821488,
+    "lon": 39.5605851,
+    "detail": "الكلية الوسطى في المجمع، بين كلية الدعوة وكلية القرآن.",
+    "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
+    "accuracy": 15.0,
+    "manual": true,
+    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "signs": [
+      "كلية الحديث الشريف والدراسات الإسلامية",
+      "College of Hadith and Islamic Studies"
+    ],
+    "photos": []
+  },
+  {
+    "id": "lm-quran",
+    "name": "كلية القرآن الكريم والدراسات الإسلامية",
+    "category": "FACULTY",
+    "lat": 24.4819126,
+    "lon": 39.5612898,
+    "detail": "الكلية الشرقية في المجمع، تطل على الساحة المبلطة.",
+    "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
+    "accuracy": 15.0,
+    "manual": true,
+    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "signs": [
+      "كلية القرآن الكريم والدراسات الإسلامية",
+      "College of Noble Quran and Islamic Studies"
+    ],
+    "photos": []
+  }
+]

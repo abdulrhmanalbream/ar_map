@@ -3,10 +3,13 @@ package com.sarab.vision.core
 /**
  * The landmarks to survey, as templates.
  *
- * These carry the names, categories and descriptions but NOT coordinates:
- * positions come from walking the campus in survey mode. Pre-filling the
- * names means the survey is a matter of walking to each entrance and tapping
- * save, rather than typing Arabic on a phone in the sun.
+ * These carry the names, categories, descriptions and -- where known -- the
+ * exact text on the building's entrance plaque. Positions come from walking
+ * the campus in survey mode or from picking the point on the map, so they are
+ * deliberately not here.
+ *
+ * Pre-filling the names means the survey is a matter of walking to each
+ * entrance and tapping save, rather than typing Arabic on a phone in the sun.
  *
  * Once surveyed, the exported landmarks.json can be dropped into
  * app/src/main/assets/ to ship the finished map with the app.
@@ -19,7 +22,16 @@ object CampusSeed {
         val category: LandmarkCategory,
         val detail: String = "",
         val hours: String = "",
-        val amenities: List<String> = emptyList()
+        val amenities: List<String> = emptyList(),
+        /**
+         * What is written on the entrance plaque, verbatim.
+         *
+         * Transcribed from photographs of the actual signs, including the
+         * misspelling on the Dawah building ("Propogation"), because OCR reads
+         * the wall rather than the dictionary. The correct spelling is listed
+         * alongside it so either reading matches.
+         */
+        val signTexts: List<String> = emptyList()
     )
 
     val TEMPLATES: List<Template> = listOf(
@@ -47,9 +59,47 @@ object CampusSeed {
         Template(
             name = "كلية الشريعة",
             category = LandmarkCategory.FACULTY,
-            detail = "قاعات محاضرات كلية الشريعة والدراسات الإسلامية.",
+            detail = "مبنى مرتفع من ستة أدوار، يقع منفرداً عبر الشارع عن " +
+                "مجمع كليات القرآن والحديث والدعوة.",
             hours = "الأحد - الخميس 7:30 ص - 8:00 م",
-            amenities = listOf("مدخل مهيأ", "واي فاي", "مصلى")
+            amenities = listOf("مدخل مهيأ", "واي فاي", "مصلى"),
+            signTexts = listOf("كلية الشريعة", "Faculty of Shariah")
+        ),
+        Template(
+            name = "كلية القرآن الكريم والدراسات الإسلامية",
+            category = LandmarkCategory.FACULTY,
+            detail = "الكلية الشرقية في المجمع، تطل على الساحة المبلطة.",
+            hours = "الأحد - الخميس 7:30 ص - 8:00 م",
+            amenities = listOf("مدخل مهيأ", "واي فاي", "مصلى"),
+            signTexts = listOf(
+                "كلية القرآن الكريم والدراسات الإسلامية",
+                "College of Noble Quran and Islamic Studies"
+            )
+        ),
+        Template(
+            name = "كلية الحديث الشريف والدراسات الإسلامية",
+            category = LandmarkCategory.FACULTY,
+            detail = "الكلية الوسطى في المجمع، بين كلية الدعوة وكلية القرآن.",
+            hours = "الأحد - الخميس 7:30 ص - 8:00 م",
+            amenities = listOf("مدخل مهيأ", "واي فاي", "مصلى"),
+            signTexts = listOf(
+                "كلية الحديث الشريف والدراسات الإسلامية",
+                "College of Hadith and Islamic Studies"
+            )
+        ),
+        Template(
+            name = "كلية الدعوة وأصول الدين",
+            category = LandmarkCategory.FACULTY,
+            detail = "الكلية الغربية في المجمع، الأقرب إلى كلية الشريعة.",
+            hours = "الأحد - الخميس 7:30 ص - 8:00 م",
+            amenities = listOf("مدخل مهيأ", "واي فاي", "مصلى"),
+            signTexts = listOf(
+                "كلية الدعوة وأصول الدين",
+                // The plaque itself reads "Propogation". Both spellings are
+                // listed so a correct OCR read and a faithful one both match.
+                "College of Islamic Propogation and Principles of Religion",
+                "College of Islamic Propagation and Principles of Religion"
+            )
         )
     )
 
