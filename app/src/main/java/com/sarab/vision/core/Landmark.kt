@@ -52,12 +52,57 @@ data class Landmark(
      * Stored verbatim, misspellings included: OCR reads what is on the wall,
      * not what should have been written there.
      */
-    val signTexts: List<String> = emptyList()
+    val signTexts: List<String> = emptyList(),
+    /**
+     * The doors, where known.
+     *
+     * A building is not a point. Surveying showed the map pin sitting 40-50m
+     * from the actual entrance on three of four colleges, which meant the app
+     * announced arrival while the user was still walking past a blank wall,
+     * and a second entrance on the far side went unrecognised entirely.
+     *
+     * Routing and arrival both work against the nearest of these when any
+     * exist. Empty is fine and falls back to [position].
+     */
+    val entrances: List<Entrance> = emptyList()
 ) {
     /** Primary photo, used for list thumbnails and the detail card header. */
     val primaryPhoto: LandmarkPhoto?
         get() = photos.firstOrNull { it.viewpoint == Viewpoint.ENTRANCE } ?: photos.firstOrNull()
+
+    /**
+     * The nearest door to [from], or null when none are recorded.
+     */
+    fun nearestEntrance(from: LatLng): Entrance? {
+        if (!from.isValid) return entrances.firstOrNull()
+        return entrances
+            .filter { it.position.isValid }
+            .minByOrNull { distanceMeters(from, it.position) }
+    }
+
+    /**
+     * Where to actually send someone standing at [from].
+     *
+     * The centre of a building is never the answer: you cannot walk into a
+     * wall. This is the point every distance, bearing and route should be
+     * computed against.
+     */
+    fun approachPoint(from: LatLng): LatLng =
+        nearestEntrance(from)?.position ?: position
 }
+
+/**
+ * A door into a building.
+ *
+ * Named because "you have arrived" is far more useful when it can say WHICH
+ * way in -- these buildings have entrances on opposite sides and arriving at
+ * the wrong one means walking the length of the block.
+ */
+data class Entrance(
+    val id: String,
+    val nameAr: String,
+    val position: LatLng
+)
 
 /**
  * One photo of a landmark, tagged with where it was taken from.
@@ -136,10 +181,13 @@ fun rankByDistance(landmarks: List<Landmark>, from: LatLng): List<LandmarkFix> {
     }
     return landmarks
         .map {
+            // To the door, so "nearest" means nearest to walk to rather than
+            // nearest as the crow flies to a point inside a wall.
+            val approach = it.approachPoint(from)
             LandmarkFix(
                 landmark = it,
-                distanceMeters = distanceMeters(from, it.position),
-                bearingDegrees = bearingDegrees(from, it.position)
+                distanceMeters = distanceMeters(from, approach),
+                bearingDegrees = bearingDegrees(from, approach)
             )
         }
         .sortedBy { it.distanceMeters }

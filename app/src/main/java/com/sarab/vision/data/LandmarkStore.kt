@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Landmark
+import com.sarab.vision.core.Entrance
 import com.sarab.vision.core.LandmarkCategory
 import com.sarab.vision.core.LandmarkPhoto
 import com.sarab.vision.core.Viewpoint
@@ -25,7 +26,7 @@ private const val SEED_STAMP = "seed_version"
  * seed entries merge into an existing survey without touching what the user
  * recorded themselves.
  */
-private const val CURRENT_SEED_VERSION = 2
+private const val CURRENT_SEED_VERSION = 3
 
 /**
  * Offline storage for captured landmarks.
@@ -75,13 +76,29 @@ class LandmarkStore(private val context: Context) {
         // Merge by id, and let anything already on the device win. A landmark
         // the user surveyed standing at the door is worth more than a
         // coordinate shipped in the APK, so an update must never overwrite it.
+        val seed = loadSeedFromAssets()
         val known = existing.mapTo(HashSet()) { it.id }
-        val additions = loadSeedFromAssets().filterNot { it.id in known }
+        val additions = seed.filterNot { it.id in known }
+
+        // Entrances are the exception to "the device always wins".
+        //
+        // A landmark already saved on the phone keeps its own coordinate and
+        // name, but doors are new data that no existing record can have, and
+        // without them routing keeps aiming at the middle of the building.
+        val seedById = seed.associateBy { it.id }
+        val updated = existing.map { own ->
+            val fromSeed = seedById[own.id]
+            if (own.entrances.isEmpty() && fromSeed != null && fromSeed.entrances.isNotEmpty()) {
+                own.copy(entrances = fromSeed.entrances, signTexts = fromSeed.signTexts)
+            } else {
+                own
+            }
+        }
         markSeedApplied()
 
-        if (additions.isEmpty()) return existing
+        if (additions.isEmpty() && updated == existing) return existing
 
-        val merged = existing + additions
+        val merged = updated + additions
         Log.i(TAG, "Merged ${additions.size} new seed landmarks (v$CURRENT_SEED_VERSION)")
         save(merged)
         return merged
@@ -157,6 +174,25 @@ class LandmarkStore(private val context: Context) {
                 }
             }
 
+            val entrances = mutableListOf<Entrance>()
+            o.optJSONArray("entrances")?.let { a ->
+                for (j in 0 until a.length()) {
+                    val e = a.optJSONObject(j) ?: continue
+                    val elat = e.optDouble("lat", Double.NaN)
+                    val elon = e.optDouble("lon", Double.NaN)
+                    if (elat.isNaN() || elon.isNaN()) continue
+                    val pos = LatLng(elat, elon)
+                    if (!pos.isValid) continue
+                    entrances.add(
+                        Entrance(
+                            id = e.optString("id").ifBlank { "en-${System.nanoTime()}-$j" },
+                            nameAr = e.optString("name", "المدخل"),
+                            position = pos
+                        )
+                    )
+                }
+            }
+
             val photos = mutableListOf<LandmarkPhoto>()
             o.optJSONArray("photos")?.let { a ->
                 for (j in 0 until a.length()) {
@@ -199,7 +235,8 @@ class LandmarkStore(private val context: Context) {
                     photos = photos,
                     capturedAccuracyM = o.optDouble("accuracy", 0.0).toFloat(),
                     placedManually = o.optBoolean("manual", false),
-                    signTexts = signs
+                    signTexts = signs,
+                    entrances = entrances
                 )
             )
         }
@@ -221,6 +258,21 @@ class LandmarkStore(private val context: Context) {
                     put("accuracy", l.capturedAccuracyM.toDouble())
                     put("manual", l.placedManually)
                     put("signs", JSONArray(l.signTexts))
+                    put(
+                        "entrances",
+                        JSONArray().apply {
+                            for (e in l.entrances) {
+                                put(
+                                    JSONObject().apply {
+                                        put("id", e.id)
+                                        put("name", e.nameAr)
+                                        put("lat", e.position.latitude)
+                                        put("lon", e.position.longitude)
+                                    }
+                                )
+                            }
+                        }
+                    )
                     put("amenities", JSONArray(l.amenities))
                     put(
                         "photos",

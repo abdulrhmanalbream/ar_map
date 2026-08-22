@@ -69,10 +69,14 @@ fun guidanceFor(
 ): GuidanceMode {
     if (!userPosition.isValid) return GuidanceMode.NoFix
 
-    val distance = distanceMeters(userPosition, target.position)
+    // Measured to the nearest DOOR. Surveying found the map pin 40-50m from
+    // the entrance on three of four colleges, so arrival used to be announced
+    // while the user was still walking past a blank wall.
+    val approach = target.approachPoint(userPosition)
+    val distance = distanceMeters(userPosition, approach)
 
     if (distance > AR_HANDOFF_DISTANCE_M) {
-        val bearing = bearingDegrees(userPosition, target.position)
+        val bearing = bearingDegrees(userPosition, approach)
         val relative = userHeadingDeg?.let { relativeBearing(it, bearing) } ?: 0.0
         return GuidanceMode.Compass(distance, bearing, relative)
     }

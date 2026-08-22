@@ -10,6 +10,7 @@ import com.sarab.vision.core.GpsFix
 import com.sarab.vision.core.GuidanceMode
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.LandmarkCategory
+import com.sarab.vision.core.Entrance
 import com.sarab.vision.core.LandmarkPhoto
 import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Viewpoint
@@ -515,7 +516,7 @@ class CampusState(private val context: Context) {
         if (movedEnough || route == null) {
             lastRoutedFrom = position
             route = if (position == null || t == null || !position.isValid) null
-            else routeTo(pathNetwork, position, t.position, travelMode)
+            else routeTo(pathNetwork, position, t.approachPoint(position), travelMode)
         }
 
         onUpdate?.invoke()
@@ -661,8 +662,14 @@ class CampusState(private val context: Context) {
     /** Bearing from the user to the current target, if both are known. */
     fun targetBearing(): Double? {
         val p = fix?.position ?: return null
-        val t = target?.position ?: return null
+        val t = target ?: return null
         if (!p.isValid) return null
-        return bearingDegrees(p, t)
+        return bearingDegrees(p, t.approachPoint(p))
+    }
+
+    /** Which door the user is currently being sent to, if any. */
+    fun targetEntrance(): Entrance? {
+        val p = fix?.position ?: return null
+        return target?.nearestEntrance(p)
     }
 }

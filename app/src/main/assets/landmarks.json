@@ -9,9 +9,24 @@
     "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
     "accuracy": 15.0,
     "manual": true,
-    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
-    "signs": ["كلية الشريعة", "Faculty of Shariah"],
-    "photos": []
+    "amenities": [
+      "مدخل مهيأ",
+      "واي فاي",
+      "مصلى"
+    ],
+    "signs": [
+      "كلية الشريعة",
+      "Faculty of Shariah"
+    ],
+    "photos": [],
+    "entrances": [
+      {
+        "id": "en-shariah-main",
+        "name": "المدخل الرئيسي",
+        "lat": 24.480899,
+        "lon": 39.559647
+      }
+    ]
   },
   {
     "id": "lm-dawah",
@@ -23,13 +38,25 @@
     "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
     "accuracy": 15.0,
     "manual": true,
-    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "amenities": [
+      "مدخل مهيأ",
+      "واي فاي",
+      "مصلى"
+    ],
     "signs": [
       "كلية الدعوة وأصول الدين",
       "College of Islamic Propogation and Principles of Religion",
       "College of Islamic Propagation and Principles of Religion"
     ],
-    "photos": []
+    "photos": [],
+    "entrances": [
+      {
+        "id": "en-dawah-main",
+        "name": "المدخل الرئيسي",
+        "lat": 24.481676,
+        "lon": 39.560255
+      }
+    ]
   },
   {
     "id": "lm-hadith",
@@ -41,12 +68,24 @@
     "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
     "accuracy": 15.0,
     "manual": true,
-    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "amenities": [
+      "مدخل مهيأ",
+      "واي فاي",
+      "مصلى"
+    ],
     "signs": [
       "كلية الحديث الشريف والدراسات الإسلامية",
       "College of Hadith and Islamic Studies"
     ],
-    "photos": []
+    "photos": [],
+    "entrances": [
+      {
+        "id": "en-hadith-main",
+        "name": "المدخل الرئيسي",
+        "lat": 24.48171,
+        "lon": 39.560565
+      }
+    ]
   },
   {
     "id": "lm-quran",
@@ -58,11 +97,23 @@
     "hours": "الأحد - الخميس 7:30 ص - 8:00 م",
     "accuracy": 15.0,
     "manual": true,
-    "amenities": ["مدخل مهيأ", "واي فاي", "مصلى"],
+    "amenities": [
+      "مدخل مهيأ",
+      "واي فاي",
+      "مصلى"
+    ],
     "signs": [
       "كلية القرآن الكريم والدراسات الإسلامية",
       "College of Noble Quran and Islamic Studies"
     ],
-    "photos": []
+    "photos": [],
+    "entrances": [
+      {
+        "id": "en-quran-main",
+        "name": "المدخل الرئيسي",
+        "lat": 24.481676,
+        "lon": 39.560948
+      }
+    ]
   }
 ]
