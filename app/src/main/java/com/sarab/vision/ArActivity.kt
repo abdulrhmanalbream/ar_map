@@ -36,6 +36,7 @@ import com.sarab.vision.core.Destination
 import com.sarab.vision.ui.BlockingMessage
 import com.sarab.vision.ui.ChangeDestinationButton
 import com.sarab.vision.ui.DestinationSheet
+import com.sarab.vision.ui.IgnitionSplash
 import com.sarab.vision.ui.PoiCardHost
 import com.sarab.vision.ui.ScanHint
 
@@ -75,6 +76,9 @@ class ArActivity : ComponentActivity() {
     private var resumeRetries = 0
 
     private var uiState by mutableStateOf<ScreenState>(ScreenState.NeedsPermission)
+
+    /** Plays once per Activity creation, over whatever screen is loading underneath. */
+    private var showIgnition by mutableStateOf(true)
     private var cardVisible by mutableStateOf(false)
     private var sheetVisible by mutableStateOf(true)
     private var selected by mutableStateOf<Destination?>(null)
@@ -211,6 +215,10 @@ class ArActivity : ComponentActivity() {
                             }
                         )
                     }
+                }
+
+                if (showIgnition) {
+                    IgnitionSplash(onFinished = { showIgnition = false })
                 }
             }
         }

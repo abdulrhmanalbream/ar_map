@@ -74,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.sarab.vision.ui.CompassBar
 import com.sarab.vision.ui.DestinationPicker
 import com.sarab.vision.ui.DirectionArrow
+import com.sarab.vision.ui.IgnitionSplash
 import com.sarab.vision.ui.SignOverlay
 import com.sarab.vision.ui.StartTourButton
 import com.sarab.vision.ui.TourOverlay
@@ -113,6 +114,9 @@ class ArNavActivity : ComponentActivity() {
 
     /** The destination sheet, shown over the camera. */
     private var pickerVisible by mutableStateOf(false)
+
+    /** Plays once over whatever is loading underneath, then never shows again. */
+    private var showIgnition by mutableStateOf(true)
 
     /**
      * What the camera has read off a building plaque, if anything.
@@ -224,6 +228,10 @@ class ArNavActivity : ComponentActivity() {
                         )
 
                         else -> ArNavContent()
+                    }
+
+                    if (showIgnition) {
+                        IgnitionSplash(onFinished = { showIgnition = false })
                     }
                 }
             }

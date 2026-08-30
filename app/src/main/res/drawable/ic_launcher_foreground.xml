@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Sarab Vision mark: a perspective path receding to a marker pin.
-  Vector so it scales to every density without shipping bitmaps.
+  Sarab Vision mark: Compass Aperture — four AR-viewfinder reticle corners
+  around a shortened, balanced direction-of-travel needle.
+
+  Adaptive icons only guarantee the inner 66dp circle (radius 33dp from the
+  54,54 centre) survives every launcher mask; the rest can be clipped. The
+  Mirage Marks 120-unit grid's frame sits at 85% of the canvas, which is
+  outside that circle, so it's rescaled 0.582x about the centre on top of
+  the usual 120->108 conversion - otherwise the blue frame vanishes on
+  masks that crop aggressively (confirmed on-device: Samsung One UI clips
+  it entirely, leaving only the needle).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -9,19 +17,22 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Receding path on the ground -->
+    <!-- Reticle corners, path blue -->
     <path
-        android:fillColor="#4FC3F7"
-        android:pathData="M38,78 L70,78 L60,58 L48,58 Z" />
-    <path
-        android:fillColor="#29B6F6"
-        android:pathData="M46,54 L62,54 L57,44 L51,44 Z" />
+        android:strokeColor="#4FD1FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="square"
+        android:pathData="M32,32 L32,40.4
+                           M32,32 L40.4,32
+                           M76,32 L76,40.4
+                           M76,32 L67.6,32
+                           M32,76 L32,67.6
+                           M32,76 L40.4,76
+                           M76,76 L76,67.6
+                           M76,76 L67.6,76" />
 
-    <!-- POI marker pin at the end of the path -->
+    <!-- Direction-of-travel needle, marker gold -->
     <path
-        android:fillColor="#FFCA28"
-        android:pathData="M54,20 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
-    <path
-        android:fillColor="#FFCA28"
-        android:pathData="M54,40 L47,27 L61,27 Z" />
+        android:fillColor="#E8B54D"
+        android:pathData="M54,48.2 L59.8,61.9 L54,57.7 L48.2,61.9 Z" />
 </vector>
