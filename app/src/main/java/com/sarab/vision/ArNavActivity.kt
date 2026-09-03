@@ -3,9 +3,14 @@ package com.sarab.vision
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.opengl.GLSurfaceView
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
@@ -58,8 +63,16 @@ import com.sarab.vision.core.CalibrationState
 import com.sarab.vision.core.CalibrationStep
 import com.sarab.vision.core.initialCalibrationStep
 import com.sarab.vision.core.GuidanceMode
+import com.sarab.vision.core.HudCommand
+import com.sarab.vision.core.HudMenuAction
+import com.sarab.vision.core.HudMenuState
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.SignMatch
+import com.sarab.vision.core.VoiceState
+import com.sarab.vision.core.advanceHudMenu
+import com.sarab.vision.core.nextVoiceCue
+import com.sarab.vision.core.syncHudMenu
+import com.sarab.vision.core.voiceCueAr
 import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.core.stairsAhead
 import com.sarab.vision.ar.SignReader
@@ -130,6 +143,37 @@ class ArNavActivity : ComponentActivity() {
 
     private val signReader = SignReader()
 
+    /** Shows the HUD on USB-C display glasses whenever a pair is plugged in. */
+    private lateinit var glasses: GlassesDisplayController
+
+    // ---- Eyes-free control -----------------------------------------------
+
+    /** The glasses menu; all input sources drive it through [onHudCommand]. */
+    private var hudMenu by mutableStateOf<HudMenuState>(HudMenuState.Closed)
+
+    /** Compose-visible mirror of the controller's connection state. */
+    private var glassesConnected by mutableStateOf(false)
+
+    /** User's choice: false = instrument HUD, true = mirror the phone. */
+    private var glassesMirror by mutableStateOf(false)
+
+    private lateinit var voice: VoiceGuide
+    private var voiceState = VoiceState()
+
+    /** Previous guidance, so menu sync reacts to transitions, not states. */
+    private var previousGuidance: GuidanceMode? = null
+
+    /**
+     * Receives media buttons (Bluetooth remotes and rings, and the glasses'
+     * own controls if the firmware sends consumer-control codes). Only active
+     * while glasses are connected, so ordinary music control is untouched the
+     * rest of the time.
+     */
+    private var mediaSession: MediaSession? = null
+
+    /** Throttles gesture scroll, which arrives as a burst per hand-swipe. */
+    private var lastScrollCommandMs = 0L
+
     // ---- Guided start-up -------------------------------------------------
 
     private var calibration by mutableStateOf(
@@ -154,6 +198,20 @@ class ArNavActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         campus = CampusApp.state(this)
+        voice = VoiceGuide(this)
+        glasses = GlassesDisplayController(
+            this, campus,
+            menu = { hudMenu },
+            onCommand = { runOnUiThread { onHudCommand(it) } },
+            onConnectionChanged = { connected ->
+                glassesConnected = connected
+                // Media buttons are only claimed while the wearer depends on
+                // them; otherwise this would silently break music controls.
+                mediaSession?.isActive = connected
+                if (!connected) hudMenu = HudMenuState.Closed
+            }
+        )
+        setUpMediaSession()
         hasCameraPermission = ContextCompat.checkSelfPermission(
             this, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
@@ -195,6 +253,11 @@ class ArNavActivity : ComponentActivity() {
         // genuinely nothing left to dismiss.
         onBackPressedDispatcher.addCallback(this) {
             when {
+                // The glasses menu closes first: right-click from the
+                // glasses' gesture control arrives as BACK, and it must
+                // dismiss what the wearer is looking at, not what the
+                // phone screen happens to show.
+                hudMenu !is HudMenuState.Closed -> hudMenu = HudMenuState.Closed
                 pickerVisible -> pickerVisible = false
                 calibration.step != CalibrationStep.DONE ->
                     calibration = CalibrationState(CalibrationStep.DONE, 1f, "", "")
@@ -361,6 +424,28 @@ class ArNavActivity : ComponentActivity() {
                             .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
+
+                    // What the glasses show, chosen by the wearer: the black
+                    // instrument HUD suits see-through optics, but some want
+                    // the whole screen -- camera, menus, map -- up there, and
+                    // that is plain mirroring, which the HUD must get out of
+                    // the way for.
+                    if (glassesConnected) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (glassesMirror) "النظارة: شاشة كاملة"
+                            else "النظارة: مؤشرات",
+                            color = Color(0xFFFFB300),
+                            fontSize = 11.sp,
+                            modifier = Modifier
+                                .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                                .clickable {
+                                    glassesMirror = !glassesMirror
+                                    glasses.setMirror(glassesMirror)
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
                 }
 
                 // Inside the column, below the status row.
@@ -684,6 +769,168 @@ class ArNavActivity : ComponentActivity() {
         surfaceView.onResume()
     }
 
+    // ---- Eyes-free control -----------------------------------------------
+    //
+    // XREAL's gesture control recognises the hand ON the glasses (firmware
+    // 1.9.1+, needs the Eye camera) and sends the result to the phone as
+    // ordinary HID mouse events: scroll for an air-swipe, click for a pinch.
+    // None of it needs a cursor position, so events are consumed globally and
+    // position is ignored -- which also means any Bluetooth mouse, ring or
+    // clicker drives the HUD identically. All sources reduce to HudCommand;
+    // behaviour lives in the pure state machine in core/HudMenu.kt.
+
+    /** Single entry point for every eyes-free input source. */
+    private fun onHudCommand(command: HudCommand) {
+        val before = selectedMenuName()
+        val result = advanceHudMenu(
+            hudMenu, command, campus.landmarks.toList(), campus.fix?.position
+        )
+        hudMenu = result.state
+
+        when (val action = result.action) {
+            is HudMenuAction.Select -> {
+                campus.selectTarget(action.landmark)
+                voice.speak("التوجه إلى ${action.landmark.name}")
+            }
+            HudMenuAction.RepeatInstruction -> campus.target?.let {
+                voice.speak(instructionAr(campus.guidance, it.name))
+            }
+            HudMenuAction.None -> Unit
+        }
+
+        // Speak the highlighted name as the wearer cycles: with the phone
+        // lowered, the ears confirm what the glasses show.
+        val after = selectedMenuName()
+        if (after != null && after != before) voice.speak(after)
+    }
+
+    private fun selectedMenuName(): String? = when (val m = hudMenu) {
+        is HudMenuState.DestinationMenu -> m.items[m.selected].name
+        is HudMenuState.AmbiguityMenu -> m.candidates[m.selected].name
+        is HudMenuState.NextSuggestion -> m.suggestion.name
+        is HudMenuState.Closed -> null
+    }
+
+    /** Runs on every sensor update: menu sync and voice, from pure policy. */
+    private fun onGuidanceTick() {
+        val guidance = campus.guidance
+        hudMenu = syncHudMenu(
+            hudMenu, previousGuidance, guidance,
+            campus.landmarks.toList(), campus.target, campus.fix?.position
+        )
+
+        // Voice only speaks while glasses are up: it exists so the wearer
+        // can keep their eyes on the path, and unprompted speech in the
+        // phone-only flow would be a surprise nobody asked for. Keyed on
+        // connected, not hudShown, so mirror mode keeps its voice.
+        if (glasses.connected) {
+            val cue = campus.target?.let { voiceCueAr(guidance, it.name) }
+            val urgent = guidance is GuidanceMode.Arrived ||
+                guidance is GuidanceMode.Ambiguous
+            val (next, toSpeak) =
+                nextVoiceCue(voiceState, cue, urgent, System.currentTimeMillis())
+            voiceState = next
+            toSpeak?.let { voice.speak(it) }
+        }
+        previousGuidance = guidance
+    }
+
+    /**
+     * Media buttons as navigation commands.
+     *
+     * This is what makes cheap Bluetooth rings and clickers work as glasses
+     * remotes, and catches the glasses' own controls should the firmware
+     * send consumer-control codes. A fake "playing" state is required for
+     * Android to route buttons here at all; the session only activates while
+     * glasses are connected so ordinary music control is otherwise untouched.
+     */
+    private fun setUpMediaSession() {
+        mediaSession = MediaSession(this, "SarabVisionHud").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+                    val key = if (Build.VERSION.SDK_INT >= 33) {
+                        mediaButtonIntent.getParcelableExtra(
+                            Intent.EXTRA_KEY_EVENT, KeyEvent::class.java
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                    } ?: return false
+                    if (key.action != KeyEvent.ACTION_DOWN) return true
+                    when (key.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> onHudCommand(HudCommand.NEXT)
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> onHudCommand(HudCommand.PREV)
+                        KeyEvent.KEYCODE_MEDIA_PLAY,
+                        KeyEvent.KEYCODE_MEDIA_PAUSE,
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                        KeyEvent.KEYCODE_HEADSETHOOK -> onHudCommand(HudCommand.CONFIRM)
+                        else -> return false
+                    }
+                    return true
+                }
+            })
+            setPlaybackState(
+                PlaybackState.Builder()
+                    .setState(PlaybackState.STATE_PLAYING, 0L, 1f)
+                    .setActions(
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                            PlaybackState.ACTION_SKIP_TO_NEXT or
+                            PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                    )
+                    .build()
+            )
+            // Not active yet: activation follows glasses connection.
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Volume as navigation only while the HUD owns the glasses: gesture
+        // recognition degrades in harsh backlight (XREAL documents this),
+        // and campus noon sun is exactly when a physical key must still
+        // work. In mirror mode the phone behaves normally.
+        if (glasses.hudShown) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    onHudCommand(HudCommand.NEXT); return true
+                }
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    onHudCommand(HudCommand.PREV); return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (glasses.hudShown && event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            val v = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            val now = System.currentTimeMillis()
+            // One command per burst: a single air-swipe emits a stream of
+            // scroll ticks, and stepping once per tick would fly past the
+            // intended item.
+            if (v != 0f && now - lastScrollCommandMs > 250) {
+                lastScrollCommandMs = now
+                onHudCommand(if (v < 0) HudCommand.NEXT else HudCommand.PREV)
+            }
+            return true
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        // A pinch-click must confirm the glasses menu, never tap whatever
+        // Compose element happens to sit under an invisible cursor. Only
+        // while the HUD owns the glasses: in mirror mode the wearer can see
+        // the cursor, so the mouse behaves like a mouse.
+        if (glasses.hudShown && ev.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                onHudCommand(HudCommand.CONFIRM)
+            }
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onResume() {
         super.onResume()
         hasCameraPermission = ContextCompat.checkSelfPermission(
@@ -696,13 +943,15 @@ class ArNavActivity : ComponentActivity() {
         }
 
         campus.startSensors()
-        campus.onUpdate = { syncRenderer() }
+        campus.onUpdate = { syncRenderer(); onGuidanceTick() }
         syncRenderer()
         ensureSessionAndResume()
+        glasses.start()
     }
 
     override fun onPause() {
         super.onPause()
+        glasses.stop()
         campus.onUpdate = null
         if (session != null) {
             surfaceView.onPause()
@@ -718,6 +967,9 @@ class ArNavActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        voice.shutdown()
+        mediaSession?.release()
+        mediaSession = null
         signReader.close()
         renderer.signReader = null
         renderer.session = null

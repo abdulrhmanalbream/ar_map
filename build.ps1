@@ -82,9 +82,17 @@ try {
     # The build is split by ABI (MapLibre's native lib is ~12.5MB each), so
     # pick the one matching the connected phone rather than guessing.
     $adbPath = Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe"
+    # With no device attached, adb writes to stderr; under
+    # $ErrorActionPreference = "Stop" PowerShell 5.1 turns that into a
+    # terminating error even though the build already succeeded. Swallow it
+    # and fall back to arm64 below.
     $deviceAbi = ""
     if (Test-Path $adbPath) {
-        $deviceAbi = (& $adbPath shell getprop ro.product.cpu.abi 2>$null | Out-String).Trim()
+        try {
+            $deviceAbi = (& $adbPath shell getprop ro.product.cpu.abi 2>$null | Out-String).Trim()
+        } catch {
+            $deviceAbi = ""
+        }
     }
     if (-not $deviceAbi) { $deviceAbi = "arm64-v8a" }
 
@@ -119,3 +127,8 @@ try {
 finally {
     Pop-Location
 }
+
+# All failure paths above throw (nonzero exit). Reaching here means success;
+# say so explicitly, or the exit code leaks from the last native command
+# (e.g. adb probing for a device that isn't there).
+exit 0
