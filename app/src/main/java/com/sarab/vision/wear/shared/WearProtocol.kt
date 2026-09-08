@@ -27,19 +27,22 @@ object WearProtocol {
 
     fun event(bytes: ByteArray?): WatchEvent? {
         val json = parse(bytes) ?: return null
-        val id = json.optString("id")
-        val type = json.optString("type")
+        val id = json.opt("id") as? String ?: return null
+        val type = json.opt("type") as? String ?: return null
         if (!validId(id)) return null
         when (type) {
             "lap" -> if (lap(json) == null || json.optString("confidence") !in listOf("manual", "estimated") ||
                 strictLong(json, "target") != 7L) return null
-            "help" -> if (json.optString("message").length !in 1..500) return null
-            "ack" -> if (!validId(json.optString("alertId"))) return null
+            "help" -> {
+                val message = json.opt("message") as? String ?: return null
+                if (message.length !in 1..500) return null
+            }
+            "ack" -> if (!validId(json.opt("alertId") as? String ?: return null)) return null
             "status" -> {
                 val battery = strictLong(json, "batteryPercent")
                 if (json.has("batteryPercent") && (battery == null || battery !in 0..100)) return null
                 if (battery == null && !json.has("deliveredAlertId")) return null
-                if (json.has("deliveredAlertId") && !validId(json.optString("deliveredAlertId"))) return null
+                if (json.has("deliveredAlertId") && !validId(json.opt("deliveredAlertId") as? String ?: return null)) return null
             }
             else -> return null
         }
@@ -47,8 +50,8 @@ object WearProtocol {
     }
 
     fun lap(json: JSONObject): LapCounter? {
-        val mode = json.optString("mode")
-        val session = json.optString("sessionId")
+        val mode = json.opt("mode") as? String ?: return null
+        val session = json.opt("sessionId") as? String ?: return null
         val count = strictLong(json, "count") ?: return null
         val revision = strictLong(json, "revision") ?: return null
         val started = strictLong(json, "startedAt") ?: return null
@@ -62,14 +65,17 @@ object WearProtocol {
 
     fun newEvent(type: String, fields: JSONObject = JSONObject()): JSONObject = fields
         .put("id", UUID.randomUUID().toString()).put("type", type)
+        .put("createdAtMillis", System.currentTimeMillis())
+
+    fun createdAtMillis(json: JSONObject): Long? = strictLong(json, "createdAtMillis")?.takeIf { it > 0 }
 
     fun alert(bytes: ByteArray?): WatchAlert? {
         val json = parse(bytes) ?: return null
-        val id = json.optString("id")
-        val kind = json.optString("kind")
-        val message = json.optString("message")
-        val source = json.optString("sourceName")
-        val created = json.optString("createdAt")
+        val id = json.opt("id") as? String ?: return null
+        val kind = json.opt("kind") as? String ?: return null
+        val message = json.opt("message") as? String ?: return null
+        val source = json.opt("sourceName") as? String ?: return null
+        val created = json.opt("createdAt") as? String ?: return null
         if (!validId(id) || kind !in listOf("help", "regroup", "message") || message.length !in 1..1000 ||
             source.length > 160 || created.length !in 1..64) return null
         return WatchAlert(id, kind, message, source, created)

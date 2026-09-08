@@ -155,7 +155,7 @@ object DiagnosticLog {
 
     private fun snapshotBytes(context: Context): ByteArray {
         val output = ByteArrayOutputStream()
-        output.write(("Sarab Vision diagnostic export\nExported UTC: ${timestamp()}\n" +
+        output.write(("المطوف الذكي — diagnostic export\nExported UTC: ${timestamp()}\n" +
             deviceHeader(context) + "\nApp diagnostic events only; no camera images or location history.\n\n").toByteArray(Charsets.UTF_8))
         val dropped = droppedEntries.getAndSet(0)
         if (dropped > 0) append(formatEntry("LOGGER", "$dropped entries dropped while the queue was full"))

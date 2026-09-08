@@ -3,11 +3,12 @@
     <uses-feature android:name="android.hardware.type.watch" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <application android:label="سراب" android:icon="@drawable/ic_watch"
-        android:theme="@style/WatchTheme" android:allowBackup="false" android:supportsRtl="true">
+    <application android:label="المطوف الذكي" android:icon="@drawable/ic_watch"
+        android:theme="@style/WatchTheme" android:allowBackup="false" android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
         <meta-data android:name="com.google.android.wearable.standalone" android:value="false" />
         <activity android:name="com.sarab.vision.watch.WatchActivity" android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop" android:taskAffinity="com.sarab.vision.watch.main">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

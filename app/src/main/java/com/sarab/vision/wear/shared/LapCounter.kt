@@ -19,7 +19,8 @@ data class LapCounter(
     fun increment(): LapCounter = if (count == 7) this else copy(count = count + 1, revision = revision + 1)
     fun undo(): LapCounter = if (count == 0) this else copy(count = count - 1, revision = revision + 1)
     fun reset(newSessionId: String = UUID.randomUUID().toString(), now: Long = System.currentTimeMillis()) =
-        LapCounter(mode, sessionId = newSessionId, startedAt = now)
+        // Keep session ordering if the device corrects its wall clock backwards.
+        LapCounter(mode, sessionId = newSessionId, startedAt = maxOf(now, startedAt + 1))
 }
 
 /** A delayed packet must not resurrect an old count after undo or a new session. */

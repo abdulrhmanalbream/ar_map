@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Sarab Vision — an offline-first AR campus navigation app for Android (Kotlin, single `:app` Gradle module, package `com.sarab.vision`). The user picks a campus destination; far away they get a compass arrow and distance, close up ARCore draws a glowing path on the real ground to the building's door. UI text is Arabic (RTL). The project evolved V1 (straight path) → V2 (printed-marker anchored routes) → V3 (current: GPS + compass far, AR near). `V3_CAMPUS.md` (Arabic) describes the current design; `README.md` largely describes V2 and references the project's old location under a non-ASCII path — trust the code over the README where they disagree.
+Smart Mutawwif (المطوف الذكي; formerly Sarab Vision) — an offline-first AR campus navigation app for Android (Kotlin, `:app` phone and `:wear` watch modules, package `com.sarab.vision`). The user picks a campus destination; far away they get a compass arrow and distance, close up ARCore draws a glowing path on the real ground to the building's door. UI text is Arabic (RTL). The project evolved V1 (straight path) → V2 (printed-marker anchored routes) → V3 (current: GPS + compass far, AR near). `V3_CAMPUS.md` (Arabic) describes the current design; `README.md` largely describes V2 and references the project's old location under a non-ASCII path — trust the code over the README where they disagree.
 
 ## Build and test commands
 
@@ -74,7 +74,7 @@ Eyes-free control: every input source — XREAL Eye air gestures (which arrive a
 - `data/LandmarkStore.kt` — landmarks as plain JSON in the app's private files dir, seeded from `app/src/main/assets/landmarks.json`. **If you add entries to the bundled seed, bump `CURRENT_SEED_VERSION`** in LandmarkStore.kt or existing installs never see them (seed merges into on-device data without clobbering user surveys).
 - `core/PathNetwork.kt` — offline A* routing over a hand-drawn campus graph (drawn in the PATHS editor screen); per-edge foot/bike/car flags, so a `TravelMode` filters edges rather than switching profiles.
 - `data/OverpassClient.kt` — optional OSM path import, tries three Overpass mirrors in order.
-- Map tiles via MapLibre (`map/`), downloaded once and cached. The `INTERNET` permission exists **only** for tiles; navigation (GPS, compass, routing, landmarks) never touches the network. Preserve that split — offline navigation is the product's core promise.
+- Map tiles via MapLibre (`map/`), downloaded once and cached. Navigation (GPS, compass, routing, landmarks) remains offline. Opt-in group telemetry and Gemini assistant calls use the isolated Sarab platform, with credentials kept on the server. Eye camera frames are never uploaded. See `docs/SARAB_PLATFORM_AR.md` and `platform/docs/CONTRACT.md`.
 
 ### Arabic-aware search
 

@@ -269,7 +269,7 @@ class ArNavActivity : ComponentActivity() {
             "cameraPermission=$hasCameraPermission locationPermission=$hasLocationPermission " +
             "calibrated=${northOffset != null} demo=${campus.demoActive}")
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        diagnosticExportLauncher.launch("sarab-eye-$stamp.txt")
+        diagnosticExportLauncher.launch("smart-mutawwif-eye-$stamp.txt")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

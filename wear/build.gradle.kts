@@ -10,8 +10,8 @@ android {
         applicationId = "com.sarab.vision"
         minSdk = 30
         targetSdk = 35
-        versionCode = 6
-        versionName = "3.0-watch-preview"
+        versionCode = 7
+        versionName = "3.0.1-watch-preview"
     }
     buildTypes {
         debug { isMinifyEnabled = false }
@@ -27,6 +27,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

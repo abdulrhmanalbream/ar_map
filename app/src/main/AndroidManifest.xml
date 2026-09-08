@@ -2,10 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Sarab Vision runs fully offline. The INTERNET permission is deliberately
-      NOT declared: the app cannot make a network call even if a future
-      dependency tried to. Offline is enforced by the manifest, not by
-      convention.
+      Local navigation and Eye processing work offline. Map downloads and the
+      optional group/assistant features need internet; Eye frames stay local.
     -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -31,14 +29,13 @@
       gives an absolute fix that never drifts; ARCore then handles the last
       few metres, where its local precision beats GPS.
 
-      Still fully offline: GNSS satellites broadcast everything needed, so no
-      network is involved. INTERNET remains undeclared.
+      GNSS reception itself does not require a network connection.
     -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!--
-      INTERNET, for map tiles only.
+      INTERNET enables map tiles and the opt-in Sarab companion platform.
 
       This was deliberately absent while the app was purely offline, and its
       absence is why the map rendered black: MapLibre cannot fetch a single
@@ -122,6 +119,10 @@
                 <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/sarab/watch/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
+                <data android:scheme="wear" android:host="*" />
             </intent-filter>
         </service>
 

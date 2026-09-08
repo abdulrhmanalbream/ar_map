@@ -29,6 +29,7 @@ class CompanionSyncService : Service(), LocationListener {
     private var location: Location? = null
     private var listening = false
     private var stopping = false
+    private var nextOutboxAttempt = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -38,7 +39,7 @@ class CompanionSyncService : Service(), LocationListener {
         locations = getSystemService(LocationManager::class.java)
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(NotificationChannel("sarab_sync", "اتصال مجموعة سراب", NotificationManager.IMPORTANCE_LOW))
+            manager.createNotificationChannel(NotificationChannel("sarab_sync", "اتصال مجموعة المطوف الذكي", NotificationManager.IMPORTANCE_LOW))
             manager.createNotificationChannel(NotificationChannel("sarab_alerts", "تنبيهات المجموعة", NotificationManager.IMPORTANCE_HIGH).apply { enableVibration(true) })
         }
     }
@@ -62,6 +63,7 @@ class CompanionSyncService : Service(), LocationListener {
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     failures++
+                    wear.sendState(store.snapshot.groupName, false, isoTime(store.snapshot.lastSync))
                     store.status(if (e is PlatformException && e.status == 401) "انتهى الربط؛ أعد ربط المجموعة" else "الاتصال منقطع؛ الطلبات محفوظة للمحاولة التالية", true)
                     if (e is PlatformException && e.status == 401) { stopSelf(); break }
                 }
@@ -78,32 +80,48 @@ class CompanionSyncService : Service(), LocationListener {
             client.request("/device/privacy", JSONObject().put("sharingEnabled", false))
             store.privacySynced()
         }
-        for (event in store.pending()) {
+        val events = wear.drainPendingEvents()
+        val retry: (Exception) -> Unit = { failure ->
+            nextOutboxAttempt = SystemClock.elapsedRealtime() + if (failure is PlatformException && failure.status == 429) 60_000L else 15_000L
+        }
+        if (SystemClock.elapsedRealtime() >= nextOutboxAttempt) deliverBatch(store.pending().take(6), send = { event ->
             val kind = event.getString("kind")
             val payload = event.getJSONObject("payload")
             if (kind == "ack") {
                 val id = payload.getString("alertId")
                 client.request("/device/alerts/$id/ack", JSONObject())
+                store.ackSynced(id)
                 getSystemService(NotificationManager::class.java).cancel(id.hashCode())
             } else {
                 client.request("/device/alerts", JSONObject().put("kind", kind)
                     .put("message", payload.optString("message", "أحتاج مساعدة من المجموعة"))
                     .put("clientId", event.getString("id")))
             }
-            store.complete(event.getString("id"))
-        }
-        val events = wear.drainPendingEvents()
-        for (event in events) {
+        }, complete = { store.complete(it.getString("id")) }, discard = {
+            store.complete(it.getString("id")); store.discardNotice()
+        }, retryLater = retry)
+        val commands = events.filter { it.type == "help" || it.type == "ack" || it.payload.has("deliveredAlertId") }
+        if (SystemClock.elapsedRealtime() >= nextOutboxAttempt) deliverBatch(commands.take(6), send = { event ->
             when (event.type) {
-                "help" -> client.request("/device/alerts", JSONObject().put("kind", "help")
-                    .put("message", "طلب مساعدة من الساعة").put("clientId", event.id))
-                "ack" -> client.request("/device/alerts/${event.payload.getString("alertId")}/ack", JSONObject())
+                "help" -> {
+                    store.markHelp()
+                    client.request("/device/alerts", JSONObject().put("kind", "help")
+                        .put("message", "طلب مساعدة من الساعة").put("clientId", event.id))
+                }
+                "ack" -> {
+                    val id = event.payload.getString("alertId")
+                    client.request("/device/alerts/$id/ack", JSONObject())
+                    store.ackSynced(id)
+                    getSystemService(NotificationManager::class.java).cancel(id.hashCode())
+                }
                 "status" -> event.payload.optString("deliveredAlertId").takeIf { it.isNotEmpty() }?.let {
                     client.request("/device/alerts/$it/delivered", JSONObject())
                 }
             }
-        }
-        val snapshot = wear.snapshot
+        }, complete = { wear.completeEvent(it.id) }, discard = {
+            wear.completeEvent(it.id); store.discardNotice()
+        }, retryLater = retry)
+        val snapshot = wear.snapshot.value
         val battery = getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val fresh = location?.takeIf { SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos in 0..60_000_000_000L }
         val shared = if (store.snapshot.sharing && fresh != null) JSONObject()
@@ -113,9 +131,9 @@ class CompanionSyncService : Service(), LocationListener {
             .put("location", shared).put("batteryPercent", battery.takeIf { it in 0..100 } ?: JSONObject.NULL)
             .put("cameraConnected", store.cameraConnected).put("imuTracking", store.imuTracking)
             .put("watchConnected", snapshot.connected).put("destinationName", store.destinationName ?: JSONObject.NULL)
-            .put("lap", snapshot.lap ?: JSONObject.NULL)
+            .put("lap", platformLap(snapshot.lap) ?: JSONObject.NULL)
             .put("status", if (store.snapshot.helpPending || events.any { it.type == "help" }) "needs_help" else "active"))
-        events.forEach { wear.completeEvent(it.id) }
+        events.filterNot { it in commands }.forEach { wear.completeEvent(it.id) }
         val incoming = client.request("/device/alerts").getJSONArray("alerts")
         for (i in 0 until incoming.length()) {
             val alert = incoming.getJSONObject(i)
@@ -123,7 +141,10 @@ class CompanionSyncService : Service(), LocationListener {
             if (store.receive(alert)) showAlert(alert)
             // Watch keeps its own persistent deduplication; resend until its explicit receipt.
             wear.sendAlert(id, alert.getString("kind"), alert.getString("message"), alert.optString("sourceName"), alert.getString("createdAt"))
-            client.request("/device/alerts/$id/delivered", JSONObject())
+            if (!store.deliveryConfirmed(id)) {
+                client.request("/device/alerts/$id/delivered", JSONObject())
+                store.confirmDelivery(id)
+            }
         }
         wear.sendState(store.snapshot.groupName, true, isoTime(System.currentTimeMillis()))
     }
@@ -140,7 +161,8 @@ class CompanionSyncService : Service(), LocationListener {
         location = null
         if (should) {
             for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                runCatching { if (locations.isProviderEnabled(provider)) { locations.requestLocationUpdates(provider, 5_000L, 3f, this, Looper.getMainLooper()); listening = true } }
+                // Stationary users still need fresh fixes; a distance gate made them vanish after 60s.
+                runCatching { if (locations.isProviderEnabled(provider)) { locations.requestLocationUpdates(provider, 5_000L, 0f, this, Looper.getMainLooper()); listening = true } }
             }
         }
     }
@@ -153,7 +175,7 @@ class CompanionSyncService : Service(), LocationListener {
         val open = PendingIntent.getActivity(this, 0, Intent(this, CompanionActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, CompanionSyncService::class.java).setAction(STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, "sarab_sync").setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setContentTitle("سراب · ${store.snapshot.groupName}")
+            .setContentTitle("المطوف الذكي · ${store.snapshot.groupName}")
             .setContentText(if (store.snapshot.sharing) "مشاركة الموقع وتنبيهات المجموعة تعمل" else "تنبيهات المجموعة تعمل · الموقع غير مشارك")
             .setOngoing(true).setContentIntent(open).addAction(0, "إنهاء الجلسة", stop).build()
     }

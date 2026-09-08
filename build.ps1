@@ -169,6 +169,11 @@ try {
     Copy-Item -LiteralPath $apk.FullName -Destination (Join-Path $outDir $apk.Name) -Force
     $sizeMb = [math]::Round((Get-Item -LiteralPath $finalApk).Length / 1MB, 2)
     Write-Host "APK ready: $finalApk ($sizeMb MB)" -ForegroundColor Green
+    $watchApk = Join-Path $BuildDir "wear\build\outputs\apk\$variant\wear-$variant$(if ($Release) { '-unsigned' }).apk"
+    if (Test-Path -LiteralPath $watchApk) {
+        Copy-Item -LiteralPath $watchApk -Destination (Join-Path $outDir "wear-$variant$(if ($Release) { '-unsigned' }).apk") -Force
+        Write-Host "Watch APK ready in output" -ForegroundColor Green
+    }
 
     if ($Install) {
         Write-Host "Installing to $deviceSerial..." -ForegroundColor Cyan

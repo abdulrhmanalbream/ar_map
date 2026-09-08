@@ -26,6 +26,7 @@ describe('operator filters', () => {
   it('keeps requests for help discoverable even from an offline device', () => {
     expect(matchesDevice({ ...device, status: 'needs_help', lastSeenAt: null }, 'help', '', '', now)).toBe(true);
     expect(matchesDevice({ ...device, status: 'needs_help', lastSeenAt: null }, 'active', '', '', now)).toBe(false);
+    expect(matchesDevice({ ...device, status: 'offline', reportedStatus: 'needs_help', lastSeenAt: null }, 'help', '', '', now)).toBe(true);
   });
   it('combines status, group and member search without leaking other groups', () => {
     expect(matchesDevice(device, 'active', 'g1', 'أحمد', now)).toBe(true);

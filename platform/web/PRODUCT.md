@@ -1,4 +1,4 @@
-# Sarab dashboard product
+# المطوف الذكي dashboard product
 <!-- impeccable:product-schema 1 -->
 
 ## Platform
@@ -14,4 +14,4 @@ An operator needs to identify a member needing help, understand recency and loca
 Show stale information honestly. Keep errors actionable. Never treat alert delivery as user acknowledgement. Empty deployments must teach group enrollment without synthetic data.
 
 ## Open decisions
-No branding asset was provided; the dashboard uses the Sarab name in typography. The map's initial geographic extent is a navigation default, never represented as a member location.
+The product's user-confirmed display name is exactly **المطوف الذكي**, with **Smart Mutawwif** for the English wordmark. Internal package, API and session-storage identifiers are compatibility details and are not renamed. No separate branding asset was provided; the dashboard uses the product name in typography. The map's initial geographic extent is a navigation default, never represented as a member location.

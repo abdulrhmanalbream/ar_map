@@ -26,7 +26,8 @@ class WatchRepository private constructor(private val context: Context) {
     val connected: Boolean get() = nodes.isNotEmpty()
     val mode: String get() = prefs.getString("mode", "tawaf").orEmpty().takeIf { it == "sai" } ?: "tawaf"
     val groupName: String get() = prefs.getString("groupName", "").orEmpty()
-    val cloudConnected: Boolean get() = prefs.getBoolean("cloudConnected", false) && connected
+    val cloudConnected: Boolean get() = prefs.getBoolean("cloudConnected", false) && connected &&
+        System.currentTimeMillis() - prefs.getLong("stateReceivedAt", 0) in 0..60_000
     val helpStatus: String get() = prefs.getString("helpStatus", "").orEmpty()
     val pendingCount: Int get() = objects("outbox").size
 
@@ -36,7 +37,7 @@ class WatchRepository private constructor(private val context: Context) {
 
     @Synchronized fun chooseMode(mode: String) {
         if (mode != "tawaf" && mode != "sai") return
-        prefs.edit().putString("mode", mode).commit()
+        prefs.edit().putString("mode", mode).apply()
         val value = lap(mode).let { it.copy(revision = it.revision + 1) }
         saveLap(value)
         publishLap(value)
@@ -58,7 +59,7 @@ class WatchRepository private constructor(private val context: Context) {
         val serialized = WearProtocol.lapJson(value).toString()
         if (prefs.getString("queuedLap_${value.mode}", null) == serialized) return
         if (enqueue(WearProtocol.newEvent("lap", JSONObject(serialized)))) {
-            prefs.edit().putString("queuedLap_${value.mode}", serialized).commit()
+            prefs.edit().putString("queuedLap_${value.mode}", serialized).apply()
         }
     }
 
@@ -66,7 +67,7 @@ class WatchRepository private constructor(private val context: Context) {
         val json = WearProtocol.newEvent("help", JSONObject().put("message", "أحتاج مساعدة من مجموعتي. أُرسل الطلب من الساعة."))
         if (!enqueue(json)) return false
         prefs.edit().putString("lastHelpId", json.getString("id"))
-            .putString("helpStatus", "طلبك محفوظ · ينتظر استلام الجوال").commit()
+            .putString("helpStatus", "طلبك محفوظ · ينتظر استلام الجوال").apply()
         changed()
         return true
     }
@@ -77,7 +78,7 @@ class WatchRepository private constructor(private val context: Context) {
 
     @Synchronized fun acknowledge(id: String): Boolean {
         if (alerts().none { it.id == id }) return false
-        val ack = JSONObject().put("id", stableId("ack", id)).put("type", "ack").put("alertId", id)
+        val ack = WearProtocol.newEvent("ack", JSONObject().put("alertId", id)).put("id", stableId("ack", id))
         if (!enqueue(ack)) return false
         saveObjects("alerts", objects("alerts").filterNot { it.optString("id") == id })
         WatchNotifications.cancel(context, id)
@@ -100,24 +101,33 @@ class WatchRepository private constructor(private val context: Context) {
     }
 
     @Synchronized fun receiveReceipt(bytes: ByteArray?) {
-        val id = WearProtocol.parse(bytes)?.optString("id") ?: return
+        val receipt = WearProtocol.parse(bytes) ?: return
+        val id = receipt.opt("id") as? String ?: return
         if (!WearProtocol.validId(id)) return
+        val rejected = receipt.optString("disposition") == "discarded_binding_changed"
+        if (rejected && id == prefs.getString("lastHelpId", "")) {
+            prefs.edit().putString("helpStatus", "أُلغي الطلب القديم لتغيّر ربط المجموعة؛ أرسل طلبًا جديدًا إذا احتجت.").apply()
+            changed()
+        }
         val existing = objects("outbox")
         if (existing.none { it.optString("id") == id }) return
         if (!saveObjects("outbox", existing.filterNot { it.optString("id") == id })) return
         deleteData(WearProtocol.OUTBOX + id)
-        if (id == prefs.getString("lastHelpId", "")) prefs.edit()
+        if (!rejected && id == prefs.getString("lastHelpId", "")) prefs.edit()
             .putString("helpStatus", "وصل طلبك للجوال · يرسله للمجموعة عند الاتصال").apply()
         changed()
     }
 
-    fun receiveState(bytes: ByteArray?) {
+    @Synchronized fun receiveState(bytes: ByteArray?) {
         val value = WearProtocol.parse(bytes) ?: return
-        val name = value.optString("groupName")
-        val synced = value.optString("lastSyncedAt")
+        val name = value.opt("groupName") as? String ?: return
+        val synced = value.opt("lastSyncedAt") as? String ?: return
         if (name.length > 160 || synced.length > 64 || value.opt("connected") !is Boolean) return
+        if (name == prefs.getString("groupName", "") && synced == prefs.getString("lastSyncedAt", "") &&
+            value.getBoolean("connected") == prefs.getBoolean("cloudConnected", false)) return
+        // Re-reading a persistent DataItem must not make yesterday's cloud status fresh.
         prefs.edit().putString("groupName", name).putBoolean("cloudConnected", value.getBoolean("connected"))
-            .putString("lastSyncedAt", synced).apply()
+            .putString("lastSyncedAt", synced).putLong("stateReceivedAt", System.currentTimeMillis()).apply()
         changed()
     }
 
@@ -165,11 +175,11 @@ class WatchRepository private constructor(private val context: Context) {
 
     private fun sendDelivery(id: String) {
         if (id in ids("deliveryReported")) return
-        val fields = JSONObject().put("id", stableId("delivered", id)).put("type", "status")
-            .put("deliveredAlertId", id)
+        val fields = WearProtocol.newEvent("status", JSONObject().put("deliveredAlertId", id))
+            .put("id", stableId("delivered", id))
         batteryPercent()?.let { fields.put("batteryPercent", it) }
         if (enqueue(fields)) prefs.edit().putString("deliveryReported",
-            JSONArray((ids("deliveryReported") + id).takeLast(2048)).toString()).commit()
+            JSONArray((ids("deliveryReported") + id).takeLast(2048)).toString()).apply()
     }
     private fun batteryPercent(): Int? = context.getSystemService(BatteryManager::class.java)
         ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }

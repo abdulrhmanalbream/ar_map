@@ -19,9 +19,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,11 +84,12 @@ class CompanionActivity : ComponentActivity() {
         val state by store.state.collectAsState()
         val watch by PhoneWearBridge.get(this).state.collectAsState()
         val scroll = rememberScrollState()
+        LaunchedEffect(state.enrolled) { if (!state.enrolled) { history.clear(); proposedId = null; localReply = false } }
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 20.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { finish() }) { Text("العودة للكاميرا") }
-                    Text("سراب", fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(12.dp))
+                    Text("المطوف الذكي", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, maxLines = 2, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(selected = page == 0, onClick = { page = 0 }, label = { Text("المساعد") })
@@ -109,18 +112,18 @@ class CompanionActivity : ComponentActivity() {
                         history.forEach { line ->
                             Surface(color = if (line.role == "user") Color(0xFFE1ECE6) else Color(0xFFF0F0E9), shape = MaterialTheme.shapes.medium) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text(if (line.role == "user") "أنت" else "سراب", style = MaterialTheme.typography.labelMedium)
+                                    Text(if (line.role == "user") "أنت" else "المطوف الذكي", style = MaterialTheme.typography.labelMedium)
                                     Text(line.text, fontSize = 18.sp)
                                 }
                             }
                         }
                         if (localReply) Text("الرد الحالي من المساعد المحلي المحدود؛ الذكاء الاصطناعي السحابي غير متاح الآن.", style = MaterialTheme.typography.bodySmall)
-                        val target = CampusApp.state(this).landmarks.firstOrNull { it.id == proposedId }
+                        val target = CampusApp.state(this@CompanionActivity).landmarks.firstOrNull { it.id == proposedId }
                         if (target != null) {
                             Button(onClick = {
-                                CampusApp.state(this).selectTarget(target)
+                                CampusApp.state(this@CompanionActivity).selectTarget(target)
                                 store.destinationName = target.name
-                                startActivity(Intent(this, ArNavActivity::class.java).putExtra(ArNavActivity.EXTRA_TARGET_ID, target.id)
+                                startActivity(Intent(this@CompanionActivity, ArNavActivity::class.java).putExtra(ArNavActivity.EXTRA_TARGET_ID, target.id)
                                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                                 finish()
                             }, modifier = Modifier.fillMaxWidth()) { Text("ابدأ الملاحة إلى ${target.name}") }
@@ -129,10 +132,11 @@ class CompanionActivity : ComponentActivity() {
                     } else {
                         Text(state.groupName, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                         Text(state.message)
+                        state.deliveryIssue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (state.lastSync > 0) Text("آخر اتصال: ${java.text.DateFormat.getTimeInstance().format(java.util.Date(state.lastSync))}")
                         Button(onClick = {
-                            if (state.running) startService(Intent(this, CompanionSyncService::class.java).setAction(CompanionSyncService.STOP))
-                            else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                            if (state.running) startService(Intent(this@CompanionActivity, CompanionSyncService::class.java).setAction(CompanionSyncService.STOP))
+                            else if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@CompanionActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                                 notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                             else startSync()
                         }, modifier = Modifier.fillMaxWidth()) { Text(if (state.running) "إنهاء جلسة المجموعة" else "تشغيل تنبيهات المجموعة") }
@@ -143,8 +147,8 @@ class CompanionActivity : ComponentActivity() {
                             }
                             Switch(checked = state.sharing, onCheckedChange = { enabled ->
                                 if (enabled) {
-                                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                                        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                    if (ContextCompat.checkSelfPermission(this@CompanionActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                                        ContextCompat.checkSelfPermission(this@CompanionActivity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                                         store.sharing(true); startSync()
                                     } else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                                 } else {
@@ -159,7 +163,7 @@ class CompanionActivity : ComponentActivity() {
                         }
                         HorizontalDivider()
                         Text("Galaxy Watch", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(if (watch.connected) "الساعة متصلة${watch.batteryPercent?.let { " · البطارية $it٪" }.orEmpty()}" else "افتح سراب على الساعة وتأكد من اقترانها بالجوال")
+                        Text(if (watch.connected) "الساعة متصلة${watch.batteryPercent?.let { " · البطارية $it٪" }.orEmpty()}" else "افتح المطوف الذكي على الساعة وتأكد من اقترانها بالجوال")
                         watch.lap?.let { lap ->
                             Text("${if (lap.optString("mode") == "sai") "السعي" else "الطواف"}: ${lap.optInt("count")} / 7", fontSize = 24.sp)
                             Text("العدد مؤكد يدوياً من الساعة، ويمكن التراجع عن آخر شوط.", style = MaterialTheme.typography.bodySmall)
@@ -176,8 +180,8 @@ class CompanionActivity : ComponentActivity() {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                                     Text(alert.optString("sourceName", "المجموعة"), fontWeight = FontWeight.Bold)
                                     Text(alert.optString("message"))
-                                    TextButton(onClick = { store.acknowledge(alert.getString("id")); startSync() }, enabled = !alert.optBoolean("ackPending")) {
-                                        Text(if (alert.optBoolean("ackPending")) "تم التأكيد · تتم مزامنته مع المجموعة" else "تم الاستلام")
+                                    TextButton(onClick = { store.acknowledge(alert.getString("id")); startSync() }, enabled = !alert.optBoolean("ackPending") && !alert.optBoolean("ackSynced")) {
+                                        Text(if (alert.optBoolean("ackSynced")) "وصل تأكيدك للمجموعة" else if (alert.optBoolean("ackPending")) "تم التأكيد · بانتظار المزامنة" else "تم الاستلام")
                                     }
                                 }
                             }
@@ -192,7 +196,7 @@ class CompanionActivity : ComponentActivity() {
                         Button(onClick = { ask() }, enabled = !busy && input.isNotBlank(), modifier = Modifier.weight(1f)) { Text("إرسال") }
                         OutlinedButton(onClick = {
                             if (listening) { speech?.stopListening(); listening = false }
-                            else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listen()
+                            else if (ContextCompat.checkSelfPermission(this@CompanionActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listen()
                             else microphone.launch(Manifest.permission.RECORD_AUDIO)
                         }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (listening) "إنهاء الاستماع" else "تحدث") }
                     }
@@ -206,11 +210,11 @@ class CompanionActivity : ComponentActivity() {
         var code by remember { mutableStateOf("") }
         var name by remember { mutableStateOf(store.snapshot.name) }
         Text("اربط مجموعتك", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Text("خذ رمز الربط من المشرف في لوحة سراب. مشاركة موقعك تحتاج تفعيلك بعد الربط.")
+        Text("خذ رمز الربط من المشرف في لوحة المطوف الذكي. مشاركة موقعك تحتاج تفعيلك بعد الربط.")
         OutlinedTextField(value = name, onValueChange = { name = it.take(60) }, label = { Text("اسمك لدى المجموعة") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(value = code, onValueChange = { code = it.trim().take(64) }, label = { Text("رمز المجموعة") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         LanguageChoice(store.snapshot.language)
-        OutlinedTextField(value = url, onValueChange = { url = it.take(240) }, label = { Text("عنوان خادم سراب") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(value = url, onValueChange = { url = it.take(240) }, label = { Text("عنوان خادم المطوف الذكي") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Button(onClick = {
             busy = true; notice = ""
             lifecycleScope.launch {
@@ -243,20 +247,23 @@ class CompanionActivity : ComponentActivity() {
     private fun ask() {
         val message = input.trim()
         if (message.isEmpty() || busy) return
-        val campus = CampusApp.state(this)
+        val campus = CampusApp.state(this@CompanionActivity)
         val destinations = JSONArray(campus.landmarks.take(150).map { target ->
-            JSONObject().put("id", target.id).put("name", target.name).put("aliases", JSONArray(target.signTexts)).apply {
+            JSONObject().put("id", target.id.take(120)).put("name", target.name.take(160))
+                .put("aliases", JSONArray(target.signTexts.take(10).map { it.take(120) })).apply {
                 if (!campus.demoActive) campus.fix?.let { put("distanceMeters", distanceMeters(it.position, target.approachPoint(it.position))) }
             }
         })
-        val previous = JSONArray(history.takeLast(12).map { JSONObject().put("role", it.role).put("content", it.text) })
+        val previous = JSONArray(history.takeLast(8).map { JSONObject().put("role", it.role).put("content", it.text.take(1500)) })
         history.add(ChatLine("user", message)); input = ""; busy = true; notice = ""; proposedId = null
         lifecycleScope.launch {
             try {
-                val result = client.request("/assistant", JSONObject().put("message", message).put("language", store.snapshot.language)
+                val request = JSONObject().put("message", message).put("language", store.snapshot.language)
                     .put("context", JSONObject().put("destinationId", campus.target?.id ?: JSONObject.NULL)
-                        .put("destinationName", campus.target?.name ?: JSONObject.NULL).put("lap", PhoneWearBridge.get(this@CompanionActivity).snapshot.lap ?: JSONObject.NULL))
-                    .put("destinations", destinations).put("history", previous))
+                        .put("destinationName", campus.target?.name ?: JSONObject.NULL).put("lap", platformLap(PhoneWearBridge.get(this@CompanionActivity).snapshot.value.lap) ?: JSONObject.NULL))
+                    .put("destinations", destinations).put("history", previous)
+                while (request.toString().toByteArray(Charsets.UTF_8).size > 60_000 && destinations.length() > 0) destinations.remove(destinations.length() - 1)
+                val result = client.request("/assistant", request)
                 val reply = result.getString("reply").take(5000)
                 history.add(ChatLine("assistant", reply))
                 while (history.size > 24) history.removeAt(0)

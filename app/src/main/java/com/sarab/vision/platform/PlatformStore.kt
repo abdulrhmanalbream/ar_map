@@ -13,10 +13,12 @@ data class PlatformSnapshot(
     val language: String = "ar", val sharing: Boolean = false, val running: Boolean = false,
     val message: String = "المجموعة غير مرتبطة", val lastSync: Long = 0,
     val alerts: List<String> = emptyList(), val helpPending: Boolean = false,
+    val deliveryIssue: String? = null,
 )
 
 /** Private app storage; backup is disabled. Server secrets never enter this process. */
 class PlatformStore private constructor(context: Context) {
+    private val appContext = context.applicationContext
     private val prefs = context.applicationContext.getSharedPreferences("sarab_platform", Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(PlatformSnapshot(
         enrolled = token.isNotEmpty(), groupName = prefs.getString("group", "")!!,
@@ -34,12 +36,27 @@ class PlatformStore private constructor(context: Context) {
     @Volatile var destinationName: String? = null
 
     fun enroll(url: String, name: String, language: String, response: JSONObject) {
+        com.sarab.vision.wear.PhoneWearBridge.get(appContext).clearCloudBinding()
         val group = response.getJSONObject("group").getString("name")
         prefs.edit().putString("server", validatedServer(url)).putString("name", name)
             .putString("language", language).putString("token", response.getString("token"))
             .putString("group", group).putBoolean("sharing", false).apply()
-        mutable.value = snapshot.copy(enrolled = true, name = name, groupName = group, language = language,
+        mutable.value = PlatformSnapshot(enrolled = true, name = name, groupName = group, language = language,
             sharing = false, message = "تم الربط. مشاركة الموقع متوقفة حتى تفعّلها.")
+    }
+    @Synchronized fun invalidateSession(requestToken: String) {
+        if (requestToken.isEmpty() || requestToken != token) return
+        appContext.stopService(android.content.Intent(appContext, CompanionSyncService::class.java))
+        com.sarab.vision.wear.PhoneWearBridge.get(appContext).clearCloudBinding()
+        prefs.edit().remove("token").remove("group").remove("outbox").remove("alerts").remove("seen").remove("phone_delivered")
+            .putBoolean("sharing", false).putBoolean("help", false).putBoolean("privacy_pending", false).commit()
+        mutable.value = PlatformSnapshot(name = snapshot.name, language = snapshot.language,
+            message = "انتهى الربط؛ اطلب رمزاً جديداً من المشرف")
+    }
+    fun discardNotice() { mutable.value = snapshot.copy(deliveryIssue = "تعذّر إرسال تنبيه محفوظ؛ أعد الطلب إذا كان ما زال مطلوباً") }
+    fun deliveryConfirmed(id: String) = id in prefs.getStringSet("phone_delivered", emptySet())!!
+    @Synchronized fun confirmDelivery(id: String) {
+        prefs.edit().putStringSet("phone_delivered", (prefs.getStringSet("phone_delivered", emptySet())!!.toList() + id).takeLast(300).toSet()).apply()
     }
     fun language(value: String) { prefs.edit().putString("language", value).apply(); mutable.value = snapshot.copy(language = value) }
     fun sharing(value: Boolean) {
@@ -67,6 +84,12 @@ class PlatformStore private constructor(context: Context) {
         prefs.edit().putString("outbox", JSONArray(kept).toString()).commit()
     }
     fun clearHelp() { prefs.edit().putBoolean("help", false).apply(); mutable.value = snapshot.copy(helpPending = false) }
+    fun markHelp() { prefs.edit().putBoolean("help", true).apply(); mutable.value = snapshot.copy(helpPending = true) }
+    @Synchronized fun ackSynced(id: String) {
+        val entries = snapshot.alerts.map { JSONObject(it) }.map { if (it.optString("id") == id) it.put("ackSynced", true) else it }
+        prefs.edit().putString("alerts", JSONArray(entries).toString()).commit()
+        mutable.value = snapshot.copy(alerts = entries.map { it.toString() })
+    }
     @Synchronized fun receive(alert: JSONObject): Boolean {
         val id = alert.getString("id")
         val seen = prefs.getStringSet("seen", emptySet())!!.toMutableSet()
@@ -88,7 +111,7 @@ class PlatformStore private constructor(context: Context) {
     }
     private fun readArray(key: String) = runCatching { JSONArray(prefs.getString(key, "[]")) }.getOrDefault(JSONArray())
     companion object {
-        const val DEFAULT_SERVER = "https://adf-hackathon.com:9443"
+        const val DEFAULT_SERVER = "https://sm.hsaie.com"
         @Volatile private var instance: PlatformStore? = null
         fun get(context: Context): PlatformStore = instance ?: synchronized(this) { instance ?: PlatformStore(context).also { instance = it } }
         fun validatedServer(input: String): String {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Sarab Vision</string>
+    <string name="app_name">المطوف الذكي</string>
 
     <string name="scan_hint">Move your phone slowly to scan the floor</string>
     <string name="scan_found">Floor detected — follow the path</string>
@@ -12,7 +12,7 @@
     <string name="hint_board_found">Board found — move the phone gently side to side</string>
 
     <string name="camera_permission_title">Camera access needed</string>
-    <string name="camera_permission_body">Sarab Vision uses the camera to place the navigation path on the floor in front of you. Nothing leaves your device.</string>
+    <string name="camera_permission_body">Smart Mutawwif uses the camera to place the navigation path on the floor in front of you. Camera images stay on your device.</string>
     <string name="camera_permission_grant">Grant access</string>
 
     <string name="ar_unsupported_title">AR not supported</string>

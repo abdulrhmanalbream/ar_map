@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SarabVision"
 include(":app")
+include(":wear")

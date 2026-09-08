@@ -10,3 +10,8 @@ captures/
 
 # Machine-specific SDK location.
 local.properties
+node_modules/
+dist/
+platform/**/.env
+platform/**/data/
+*.private.txt

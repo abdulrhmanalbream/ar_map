@@ -1,6 +1,10 @@
-# Sarab Vision — offline AR campus navigation
+## المطوف الذكي — Smart Mutawwif 3.0.1
 
-**Current glasses build (2026-09-08): `2.3-eye-preview`.** Direct XREAL Eye USB camera,
+Phone + Galaxy Watch 8 Classic, multilingual Gemini assistant, private group tracking and alerts. Live dashboard: https://sm.hsaie.com (the HTTPS IP address remains available). Setup and limitations: [Arabic setup guide](docs/SARAB_PLATFORM_AR.md). Build both APKs with `.\build.ps1 -Test`.
+
+# Smart Mutawwif — المطوف الذكي — offline AR campus navigation
+
+**Current phone build (2026-09-08): `3.0.1-companion-preview`.** Direct XREAL Eye USB camera,
 glasses IMU, mirrored camera/route view, and downloadable diagnostic logs are now
 implemented. The user confirmed live Eye video on Fold 7, and their diagnostic log
 confirms concurrent IMU reception. Version 2.3 moves the road chevrons farther ahead,
@@ -34,12 +38,12 @@ The AR camera feed is live and the app works. A working `app-debug.apk`
 
 # ☀️ MORNING CHECKLIST — nothing to install
 
-**The app is already on your phone.** Just open **Sarab Vision** from the app
+**The app is already on your phone.** Just open **Smart Mutawwif — المطوف الذكي** from the app
 drawer. There is nothing to drag, wire, or configure — no visual editor is
 involved at any point.
 
 ### Try it (about 30 seconds)
-1. Open **Sarab Vision**. The camera feed appears immediately.
+1. Open **Smart Mutawwif — المطوف الذكي**. The camera feed appears immediately.
 2. Point it at the **floor** — a well-lit floor with visible texture (tiles,
    carpet pattern, grain) works far better than a plain glossy surface.
 3. Move the phone **slowly side to side** for 2–5 seconds. ARCore needs
@@ -123,7 +127,7 @@ $env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"; .\gradlew.bat test
 
 ---
 
-## What was verified, and what was not
+## Historical V1 validation (not the current 3.0 build)
 
 Honest accounting, so you know exactly where you stand.
 

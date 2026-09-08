@@ -74,7 +74,7 @@ object PresentationTour {
 
     val STEPS: List<TourStep> = listOf(
         TourStep(
-            titleAr = "سراب — تنقّل داخل الحرم",
+            titleAr = "المطوف الذكي — تنقّل داخل الحرم",
             captionAr = "الكاميرا والبوصلة تعملان بدون إنترنت",
             durationMs = 4_000,
             action = TourAction.Hold

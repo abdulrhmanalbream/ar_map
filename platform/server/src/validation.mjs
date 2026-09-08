@@ -57,12 +57,18 @@ export function language(value = 'ar') {
 
 export function lap(value) {
   if (value == null) return null;
-  object(value, ['mode', 'count', 'target', 'confidence'], 'lap');
+  object(value, ['mode', 'count', 'target', 'confidence', 'sessionId', 'revision', 'startedAt'], 'lap');
+  const hasSession = ['sessionId', 'revision', 'startedAt'].some(key => value[key] !== undefined);
   return {
     mode: choice(value.mode, ['tawaf', 'sai'], 'lap.mode'),
     count: number(value.count, 'lap.count', 0, 1000, true),
     target: number(value.target, 'lap.target', 7, 7, true),
     confidence: choice(value.confidence, ['manual', 'estimated'], 'lap.confidence'),
+    ...(hasSession ? {
+      sessionId: string(value.sessionId, 'lap.sessionId', 1, 120),
+      revision: number(value.revision, 'lap.revision', 0, Number.MAX_SAFE_INTEGER, true),
+      startedAt: number(value.startedAt, 'lap.startedAt', 0, Number.MAX_SAFE_INTEGER, true),
+    } : {}),
   };
 }
 
@@ -100,7 +106,7 @@ export function telemetry(body, now) {
 
 export function assistantRequest(body) {
   object(body, ['message', 'language', 'context', 'destinations', 'history']);
-  const destinations = array(body.destinations ?? [], 'destinations', 100).map(item => {
+  const destinations = array(body.destinations ?? [], 'destinations', 150).map(item => {
     object(item, ['id', 'name', 'aliases', 'distanceMeters'], 'destination');
     return {
       id: string(item.id, 'destination.id', 1, 120),
@@ -112,7 +118,7 @@ export function assistantRequest(body) {
   if (new Set(destinations.map(item => item.id)).size !== destinations.length) fail('destination ids must be unique');
   const context = object(body.context ?? {}, ['destinationId', 'destinationName', 'remainingMeters', 'lap'], 'context');
   return {
-    message: string(body.message, 'message', 1, 2000),
+    message: string(body.message, 'message', 1, 5000),
     language: language(body.language),
     context: {
       destinationId: nullableString(context.destinationId, 'context.destinationId', 120),
@@ -123,7 +129,7 @@ export function assistantRequest(body) {
     destinations,
     history: array(body.history ?? [], 'history', 12).map(item => {
       object(item, ['role', 'content'], 'history item');
-      return { role: choice(item.role, ['user', 'assistant'], 'history.role'), content: string(item.content, 'history.content', 1, 1500) };
+      return { role: choice(item.role, ['user', 'assistant'], 'history.role'), content: string(item.content, 'history.content', 1, 5000) };
     }),
   };
 }

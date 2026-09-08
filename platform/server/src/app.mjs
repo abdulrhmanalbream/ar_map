@@ -68,7 +68,7 @@ export async function createPlatform(options = {}) {
     adminPassword: options.adminPassword, now,
   });
   const rate = new RateLimiter(now);
-  const ai = createAssistant({ apiKey: options.apiKey ?? '', model: options.model ?? 'gpt-4.1-mini', fetchImpl: options.fetchImpl, timeoutMs: options.aiTimeoutMs });
+  const ai = createAssistant({ apiKey: options.apiKey, model: options.model, geminiApiKey: options.geminiApiKey, geminiModel: options.geminiModel, fetchImpl: options.fetchImpl, timeoutMs: options.aiTimeoutMs });
   const dummyPassword = await hashPassword(token());
   let hashing = 0;
   let closed = false;
@@ -112,7 +112,7 @@ export async function createPlatform(options = {}) {
     const stale = !row.last_seen_at || Date.parse(row.last_seen_at) < now() - OFFLINE_AFTER_MS;
     return {
       ...deviceIdentity(row), groupName: row.group_name, language: row.language,
-      status: stale ? 'offline' : row.status, lastSeenAt: row.last_seen_at,
+      status: stale ? 'offline' : row.status, reportedStatus: row.status, lastSeenAt: row.last_seen_at,
       location, batteryPercent: row.battery_percent,
       cameraConnected: !!row.camera_connected, imuTracking: !!row.imu_tracking, watchConnected: !!row.watch_connected,
       destinationName: row.destination_name, lap: row.lap_json ? JSON.parse(row.lap_json) : null,
@@ -191,13 +191,14 @@ export async function createPlatform(options = {}) {
     const remote = options.trustProxy && typeof req.headers['x-forwarded-for'] === 'string'
       ? req.headers['x-forwarded-for'].split(',').at(-1).trim().slice(0,100) : (req.socket.remoteAddress ?? 'unknown');
     if (method === 'GET' && path === `${PREFIX}/health`) {
-      return json(res, 200, { status: 'ok', aiConfigured: !!options.apiKey, version: '3.0' });
+      return json(res, 200, { status: 'ok', aiConfigured: ai.provider !== 'local', aiProvider: ai.provider, version: '3.0' });
     }
     if (method === 'POST' && path === `${PREFIX}/auth/login`) {
       rate.take(`login-ip:${remote}`, 20, 15 * 60_000);
       const body = object(await readJson(req), ['username', 'password']);
       const username = string(body.username, 'username', 3, 80);
-      const password = string(body.password, 'password', 1, 256);
+      string(body.password, 'password', 1, 256);
+      const password = body.password; // Passwords are opaque; preserve intentional spaces.
       rate.take(`login-name:${digest(username.toLowerCase())}`, 10, 15 * 60_000);
       if (hashing >= 2) throw new ApiError(429, 'RATE_LIMITED', 'Authentication is busy. Try again shortly.');
       hashing++;
@@ -299,16 +300,22 @@ export async function createPlatform(options = {}) {
       transaction(db, () => {
         const previous = getDevice.get(actor.id);
         let location = payload.location;
-        if (location && Date.parse(location.recordedAt) < now() - LOCATION_RETENTION_MS) location = null;
         // Out-of-order position uploads cannot move the latest position backwards.
         if (payload.sharingEnabled && location && previous.sharing_enabled && previous.location_time && location.recordedAt < previous.location_time) {
           location = previous.location_json ? JSON.parse(previous.location_json) : null;
         }
+        if (location && Date.parse(location.recordedAt) < now() - LOCATION_RETENTION_MS) location = null;
+        let lap = payload.lap;
+        const previousLap = previous.lap_json ? JSON.parse(previous.lap_json) : null;
+        if (lap?.sessionId && previousLap?.sessionId && (
+          (lap.sessionId === previousLap.sessionId && lap.revision <= previousLap.revision) ||
+          (lap.sessionId !== previousLap.sessionId && lap.startedAt < previousLap.startedAt)
+        )) lap = previousLap;
         db.prepare(`UPDATE devices SET last_seen_at=?,status=?,sharing_enabled=?,location_json=?,location_time=?,
           battery_percent=?,camera_connected=?,imu_tracking=?,watch_connected=?,destination_name=?,lap_json=? WHERE id=?`)
           .run(iso(now()), payload.status, Number(payload.sharingEnabled), location ? JSON.stringify(location) : null, location?.recordedAt ?? null,
             payload.batteryPercent, Number(payload.cameraConnected), Number(payload.imuTracking), Number(payload.watchConnected),
-            payload.destinationName, payload.lap ? JSON.stringify(payload.lap) : null, actor.id);
+            payload.destinationName, lap ? JSON.stringify(lap) : null, actor.id);
       });
       return json(res, 200, { ok: true });
     }
@@ -419,6 +426,10 @@ export async function createPlatform(options = {}) {
     headers(res);
     try {
       if (!req.url || req.url.length > 2048) throw new ApiError(414, 'URI_TOO_LONG', 'Request URL is too long');
+      if (Number(req.headers['content-length']) > BODY_LIMIT) {
+        req.resume();
+        throw new ApiError(413, 'BODY_TOO_LARGE', 'Request exceeds 64 KiB');
+      }
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname.startsWith('/api/')) await routes(req, res, url);
       else await staticFile(req, res, url);

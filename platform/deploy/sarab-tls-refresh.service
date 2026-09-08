@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh only Sarab TLS certificate copies
+[Service]
+Type=oneshot
+ExecStart=/opt/sarab-platform/refresh-tls.sh
+User=root
+ProtectHome=true
+PrivateTmp=true

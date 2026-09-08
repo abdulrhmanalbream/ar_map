@@ -379,7 +379,7 @@ class CampusActivity : ComponentActivity() {
         val json = campus.exportPathsJson()
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Sarab Vision - paths.json")
+            putExtra(Intent.EXTRA_SUBJECT, "المطوف الذكي - paths.json")
             putExtra(Intent.EXTRA_TEXT, json)
         }
         startActivity(Intent.createChooser(intent, "تصدير شبكة الطرق"))
@@ -390,7 +390,7 @@ class CampusActivity : ComponentActivity() {
         val json = campus.exportJson()
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Sarab Vision - landmarks.json")
+            putExtra(Intent.EXTRA_SUBJECT, "المطوف الذكي - landmarks.json")
             putExtra(Intent.EXTRA_TEXT, json)
         }
         startActivity(Intent.createChooser(intent, "تصدير المعالم"))

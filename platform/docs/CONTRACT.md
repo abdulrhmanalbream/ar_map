@@ -1,6 +1,6 @@
 # Sarab platform contract v1
 
-Root repository: C:/Users/TechTroniX/Documents/GitHub/ar_map. Platform root is platform/. Existing Android camera/navigation stays intact. Server will deploy an isolated stack on a NEW port, never modifying/restarting existing services. Root owns deployment and app integration. JSON API prefix /api/v1. ISO timestamps in UTC, coordinates only when user explicitly enables sharing. Latest location only, no location history. AI provider secrets server-only.
+Root repository: C:/Users/TechTroniX/Documents/GitHub/ar_map. Platform root is platform/. Existing Android camera/navigation stays intact. Server is deployed at https://sm.hsaie.com (HTTPS IP 167.86.106.163:9443 remains available) in an isolated stack. A dedicated host virtual host routes the domain to a loopback-only API port; existing virtual-host files are preserved and nginx configuration is validated before a graceful reload. Existing containers are not recreated. Root owns deployment and app integration. JSON API prefix /api/v1. ISO timestamps in UTC, coordinates only when user explicitly enables sharing. Latest location only, no location history. AI provider secrets server-only.
 
 ## Authentication
 - POST /api/v1/auth/login {username,password} -> {token,user:{id,name,role}}. Dashboard holds token in sessionStorage, Bearer auth. Admin bootstrap credentials server env. Rate limit login.
@@ -27,7 +27,7 @@ Root repository: C:/Users/TechTroniX/Documents/GitHub/ar_map. Platform root is p
 - POST /api/v1/device/alerts/:id/ack -> {ok:true}
 
 ## Assistant
-- POST /api/v1/assistant (device) {message,language,context:{destinationId,destinationName,remainingMeters,lap},destinations:[{id,name,aliases?:[],distanceMeters?:number}],history:[{role:'user'|'assistant',content}]} -> {reply,language,action:{type:'navigate'|'none',destinationId:string|null},provider:'openai'|'local',requiresConfirmation:boolean}. Never invent destinations/routes. Server uses OpenAI Responses structured outputs when configured, validates action against provided catalog. No automatic alerts from assistant. Deterministic limited offline/provider-unavailable fallback disclosed via provider=local. Do not fake general AI success. Must handle Arabic/English/Urdu/Indonesian/Turkish and language tags generally.
+- POST /api/v1/assistant (device) {message,language,context:{destinationId,destinationName,remainingMeters,lap},destinations:[{id,name,aliases?:[],distanceMeters?:number}],history:[{role:'user'|'assistant',content}]} -> {reply,language,action:{type:'navigate'|'none',destinationId:string|null},provider:'gemini'|'openai'|'local',requiresConfirmation:boolean}. Never invent destinations/routes. Server prefers Gemini structured output when GEMINI_API_KEY is configured; optional OpenAI Responses is also supported, validates action against provided catalog. No automatic alerts from assistant. Deterministic limited offline/provider-unavailable fallback disclosed via provider=local. Do not fake general AI success. Must handle Arabic/English/Urdu/Indonesian/Turkish and language tags generally.
 - GET /api/v1/health -> {status:'ok',aiConfigured:boolean,version:'3.0'} no secrets.
 
 ## Dashboard

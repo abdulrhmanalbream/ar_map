@@ -12,6 +12,8 @@ import com.sarab.vision.wear.shared.WatchAlert
 import com.sarab.vision.wear.shared.WatchEvent
 import com.sarab.vision.wear.shared.WearProtocol
 import com.sarab.vision.wear.shared.isNewerLap
+import com.sarab.vision.wear.shared.isGroupScopedWatchEvent
+import com.sarab.vision.wear.shared.allowedAfterCloudBindingChange
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,6 +51,24 @@ class PhoneWearBridge private constructor(private val context: Context) {
     @Synchronized fun completeEvent(id: String) {
         if (!WearProtocol.validId(id)) return
         saveObjects("events", objects("events").filter { it.optString("id") != id })
+        publish()
+    }
+
+    /** A revoked login or fresh enrollment must never carry old group commands forward. */
+    @Synchronized fun clearCloudBinding() {
+        val cutoff = maxOf(System.currentTimeMillis(), prefs.getLong("bindingCutoffMillis", 0) + 1)
+        val pending = objects("events")
+        val discarded = pending.filter { isGroupScopedWatchEvent(it.optString("type"), it.has("deliveredAlertId")) }
+        val discardedIds = discarded.map { it.getString("id") }
+        check(prefs.edit().putLong("bindingCutoffMillis", cutoff)
+            .putString("events", JSONArray(pending - discarded.toSet()).toString())
+            .putString("alerts", "[]")
+            .putString("bindingRejected", JSONArray((ids("bindingRejected") + discardedIds).distinct().takeLast(256)).toString())
+            .commit()) { "Unable to persist watch binding boundary" }
+        // IDs and lap sessions stay intact. Only old cloud work is discarded.
+        discardedIds.forEach { receipt(it, "") }
+        data.deleteDataItems(Uri.parse("wear://*${WearProtocol.ALERTS}"), DataClient.FILTER_PREFIX)
+        sendState("", false, WearProtocol.utcNow())
         publish()
     }
 
@@ -96,7 +116,30 @@ class PhoneWearBridge private constructor(private val context: Context) {
     @Synchronized internal fun receiveEvent(bytes: ByteArray?, sourceNode: String) {
         val event = WearProtocol.event(bytes) ?: return
         val known = ids("received")
+        if (!allowedAfterCloudBindingChange(event.type, event.payload.has("deliveredAlertId"),
+                WearProtocol.createdAtMillis(event.payload), prefs.getLong("bindingCutoffMillis", 0))) {
+            if (prefs.edit().putString("received", JSONArray((known + event.id).distinct().takeLast(256)).toString())
+                    .putString("bindingRejected", JSONArray((ids("bindingRejected") + event.id).distinct().takeLast(256)).toString())
+                    .commit()) receipt(event.id, sourceNode)
+            return
+        }
         if (event.id in known) { receipt(event.id, sourceNode); return }
+        val incomingLap = if (event.type == "lap") WearProtocol.lap(event.payload) else null
+        if (incomingLap != null) {
+            val current = prefs.getString("lap_${incomingLap.mode}", null)?.let {
+                runCatching { WearProtocol.lap(JSONObject(it)) }.getOrNull()
+            }
+            if (!isNewerLap(incomingLap, current)) {
+                // Reject before telemetry coalescing: a delayed packet must not
+                // replace the newer pending snapshot even if its ID is unseen.
+                if (prefs.edit().putString("received", JSONArray((known + event.id).takeLast(256)).toString())
+                        .putLong("lastSeenAt", System.currentTimeMillis()).commit()) {
+                    receipt(event.id, sourceNode)
+                    publish()
+                }
+                return
+            }
+        }
         var pending = objects("events")
         // Latest lap/status supersedes older telemetry, while help/ack are never evicted.
         if (event.type == "lap") pending = pending.filterNot {
@@ -110,12 +153,8 @@ class PhoneWearBridge private constructor(private val context: Context) {
             .putString("received", JSONArray((known + event.id).takeLast(256)).toString())
             .putLong("lastSeenAt", System.currentTimeMillis())
         if (event.type == "lap") {
-            val incoming = WearProtocol.lap(event.payload) ?: return
-            val previous = prefs.getString("lap_${incoming.mode}", null)?.let {
-                runCatching { WearProtocol.lap(JSONObject(it)) }.getOrNull()
-            }
-            if (isNewerLap(incoming, previous)) edit.putString("lap_${incoming.mode}", event.payload.toString())
-                .putString("lap", event.payload.toString())
+            val incoming = incomingLap ?: return
+            edit.putString("lap_${incoming.mode}", event.payload.toString()).putString("lap", event.payload.toString())
         }
         if (event.type == "status" && event.payload.has("batteryPercent")) edit.putInt("battery", event.payload.getInt("batteryPercent"))
         if (!edit.commit()) return
@@ -133,8 +172,10 @@ class PhoneWearBridge private constructor(private val context: Context) {
     }
 
     private fun receipt(id: String, node: String) {
-        val bytes = JSONObject().put("id", id).toString().toByteArray(Charsets.UTF_8)
-        messages.sendMessage(node, WearProtocol.RECEIVED, bytes)
+        val rejected = synchronized(this) { id in ids("bindingRejected") }
+        val bytes = JSONObject().put("id", id).put("disposition",
+            if (rejected) "discarded_binding_changed" else "stored_on_phone").toString().toByteArray(Charsets.UTF_8)
+        (if (node.isNotBlank()) setOf(node) else nodeIds).forEach { messages.sendMessage(it, WearProtocol.RECEIVED, bytes) }
         data.putDataItem(PutDataRequest.create(WearProtocol.RECEIPTS + id).setData(bytes).setUrgent())
         // Receipts are tiny and bounded; deleting an old receipt cannot delete the original event.
         synchronized(this) {

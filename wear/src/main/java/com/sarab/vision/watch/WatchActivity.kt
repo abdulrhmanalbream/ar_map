@@ -24,10 +24,12 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.sarab.vision.wear.shared.WatchAlert
 
 /** Large native touch targets and rotary scrolling stay usable on a round Watch 8 Classic. */
@@ -39,6 +41,7 @@ class WatchActivity : Activity() {
     private var lastIncrementAt = 0L
     private var receiverRegistered = false
     private var screenKey = ""
+    private val deferredAlerts = mutableSetOf<String>()
     private val accent = Color.rgb(105, 232, 215)
     private val ink = Color.rgb(7, 19, 21)
     private val muted = Color.rgb(186, 208, 207)
@@ -71,7 +74,7 @@ class WatchActivity : Activity() {
             // Round corners are unavailable touch area; the content remains inside the centre chord.
             setPadding(dp(24), dp(22), dp(24), dp(34))
         }
-        scroll.addView(column, ScrollView.LayoutParams(-1, -2))
+        scroll.addView(column, FrameLayout.LayoutParams(-1, -2))
         setContentView(scroll)
         scroll.setOnGenericMotionListener { _, event ->
             if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)) {
@@ -92,8 +95,7 @@ class WatchActivity : Activity() {
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(WatchRepository.ACTION_CHANGED)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else registerReceiver(receiver, filter)
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         receiverRegistered = true
         handler.post(refresh)
         repository.sendStatus()
@@ -110,6 +112,7 @@ class WatchActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        deferredAlerts.clear()
         render(force = true)
     }
 
@@ -121,7 +124,8 @@ class WatchActivity : Activity() {
     private fun render(force: Boolean = false) {
         val lap = repository.lap()
         val alerts = repository.alerts()
-        val selected = alerts.firstOrNull { it.id == intent?.getStringExtra("alertId") } ?: alerts.firstOrNull()
+        val selected = alerts.firstOrNull { it.id == intent?.getStringExtra("alertId") && it.id !in deferredAlerts }
+            ?: alerts.firstOrNull { it.id !in deferredAlerts }
         val notificationsAllowed = Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         val key = "${lap.mode}:${lap.count}:${repository.connected}:${repository.cloudConnected}:${repository.groupName}:${repository.pendingCount}:${repository.helpStatus}:${alerts.map { it.id }}:$notificationsAllowed"
         if (!force && key == screenKey) return
@@ -160,10 +164,14 @@ class WatchActivity : Activity() {
         actions.addView(makeButton("مساعدة", false, true) { confirmHelp() },
             LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(6) })
         column.addView(actions, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
+        if (alerts.isNotEmpty()) button("التنبيهات غير المؤكدة (${arabic(alerts.size)})") {
+            deferredAlerts.clear()
+            render(force = true)
+        }
         if (repository.helpStatus.isNotEmpty()) label(repository.helpStatus, 12f, accent, top = 10)
         if (repository.groupName.isNotEmpty()) label(repository.groupName, 12f, Color.WHITE, top = 10)
         label(when {
-            !repository.connected -> "افتح سراب على الجوال المتصل؛ تُرسل الطلبات المحفوظة عند عودة الاتصال."
+            !repository.connected -> "افتح المطوف الذكي على الجوال المتصل؛ تُرسل الطلبات المحفوظة عند عودة الاتصال."
             !repository.cloudConnected -> "الجوال متصل؛ اتصال المجموعة غير متاح الآن."
             else -> "المجموعة متصلة عبر الجوال"
         }, 11f, muted, top = 6)
@@ -190,6 +198,10 @@ class WatchActivity : Activity() {
             render(force = true)
         }
         label("يُرسل التأكيد عند ضغط الزر فقط.", 11f, muted, top = 6)
+        button("العودة للعدّ") {
+            deferredAlerts.addAll(repository.alerts().map { it.id })
+            render(force = true)
+        }
         button("أحتاج مساعدة") { confirmHelp() }
     }
 
@@ -199,7 +211,7 @@ class WatchActivity : Activity() {
                 else "الطلب سيُحفظ على الساعة حتى يرجع اتصال الجوال.")
             .setNegativeButton("إلغاء", null).setPositiveButton("أرسل الطلب") { _, _ ->
                 if (repository.requestHelp()) toast("حُفظ طلب المساعدة")
-                else toast("قائمة الإرسال ممتلئة. افتح سراب على الجوال وأعد المحاولة.")
+                else toast("قائمة الإرسال ممتلئة. افتح المطوف الذكي على الجوال وأعد المحاولة.")
                 render(force = true)
             }.show()
     }
