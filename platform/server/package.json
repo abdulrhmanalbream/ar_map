@@ -1,0 +1,12 @@
+{
+  "name": "sarab-platform-server",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.14.0" },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "check": "node --check src/app.mjs && node --check src/assistant.mjs && node --check src/store.mjs && node --check src/validation.mjs"
+  }
+}

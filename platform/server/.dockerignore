@@ -1,0 +1,6 @@
+data
+test
+node_modules
+.env
+*.sqlite*
+coverage

@@ -3,20 +3,28 @@ package com.sarab.vision
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.provider.Settings
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,10 +43,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,6 +59,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfig
 import com.google.ar.core.CameraConfigFilter
@@ -59,6 +76,7 @@ import com.google.ar.core.exceptions.UnavailableException
 import com.sarab.vision.ar.CampusArRenderer
 import com.sarab.vision.ar.CampusArState
 import com.sarab.vision.core.CalibrationInput
+import com.sarab.vision.core.alignedGlassesTilt
 import com.sarab.vision.core.CalibrationState
 import com.sarab.vision.core.CalibrationStep
 import com.sarab.vision.core.initialCalibrationStep
@@ -72,6 +90,8 @@ import com.sarab.vision.core.VoiceState
 import com.sarab.vision.core.advanceHudMenu
 import com.sarab.vision.core.nextVoiceCue
 import com.sarab.vision.core.syncHudMenu
+import com.sarab.vision.core.hudMenuView
+import com.sarab.vision.ui.GlassesHud
 import com.sarab.vision.core.voiceCueAr
 import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.core.stairsAhead
@@ -91,6 +111,13 @@ import com.sarab.vision.ui.IgnitionSplash
 import com.sarab.vision.ui.SignOverlay
 import com.sarab.vision.ui.StartTourButton
 import com.sarab.vision.ui.TourOverlay
+import com.sarab.vision.glasses.camera.EyeCameraController
+import com.sarab.vision.glasses.motion.GlassesMotionController
+import com.sarab.vision.ui.GlassesCameraScreen
+import com.sarab.vision.diagnostics.DiagnosticLog
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.EnumSet
 
 private const val TAG = "SarabArNav"
@@ -109,6 +136,9 @@ private val Muted = Color(0xFF9FB3C8)
  * to cross a campus, and GPS cannot draw on the floor.
  */
 class ArNavActivity : ComponentActivity() {
+
+    private val activityInstance = Integer.toHexString(System.identityHashCode(this))
+    private var lastEyeRetryMs = -2_000L
 
     companion object {
         const val EXTRA_TARGET_ID = "target_id"
@@ -155,7 +185,22 @@ class ArNavActivity : ComponentActivity() {
     private var glassesConnected by mutableStateOf(false)
 
     /** User's choice: false = instrument HUD, true = mirror the phone. */
-    private var glassesMirror by mutableStateOf(false)
+    private var glassesMirror by mutableStateOf(true)
+
+    private var useEyeCamera by mutableStateOf(true)
+    private lateinit var eyeCamera: EyeCameraController
+    private lateinit var headMotion: GlassesMotionController
+    private var northOffset by mutableStateOf<Double?>(null)
+    private var horizonPitch by mutableStateOf<Double?>(null)
+    private var horizonRoll by mutableStateOf<Double?>(null)
+    private var alignedSession: Long? = null
+    private var horizontalFov by mutableStateOf(70f)
+    private var resumed = false
+    private var hasLocationPermission by mutableStateOf(false)
+    private var exportingLog by mutableStateOf(false)
+    private var cameraPermissionRequested = false
+    private var cameraPermissionBlocked by mutableStateOf(false)
+    private var locationPermissionRequested = false
 
     private lateinit var voice: VoiceGuide
     private var voiceState = VoiceState()
@@ -191,13 +236,57 @@ class ArNavActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
-        if (granted) ensureSessionAndResume()
+        cameraPermissionBlocked = !granted && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+        DiagnosticLog.record("Permission", "Camera granted=$granted")
+        if (granted && resumed) startNavigation()
+    }
+
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        hasLocationPermission = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        DiagnosticLog.record("Permission", "Precise location granted=$hasLocationPermission")
+        if (resumed) campus.startSensors()
+    }
+
+    private val diagnosticExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            exportingLog = true
+            lifecycleScope.launch {
+                val error = DiagnosticLog.writeTo(this@ArNavActivity, uri)
+                exportingLog = false
+                Toast.makeText(this@ArNavActivity,
+                    error ?: "تم حفظ سجل التشخيص؛ أرفقه في المحادثة", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun exportDiagnosticLog() {
+        if (exportingLog) return
+        DiagnosticLog.record("App", "Export requested; eye=$useEyeCamera display=$glassesConnected " +
+            "cameraPermission=$hasCameraPermission locationPermission=$hasLocationPermission " +
+            "calibrated=${northOffset != null} demo=${campus.demoActive}")
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        diagnosticExportLauncher.launch("sarab-eye-$stamp.txt")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DiagnosticLog.initialize(this)
 
         campus = CampusApp.state(this)
+        val preferences = getPreferences(MODE_PRIVATE)
+        useEyeCamera = preferences.getBoolean("use_eye_camera", true)
+        logLifecycle("created restored=${savedInstanceState != null}")
+        requestedOrientation = if (useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        applyCameraWindow()
+        horizontalFov = preferences.getFloat("eye_horizontal_fov", 70f).coerceIn(40f, 110f)
+        eyeCamera = EyeCameraController(this)
+        headMotion = GlassesMotionController(this)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         voice = VoiceGuide(this)
         glasses = GlassesDisplayController(
             this, campus,
@@ -205,12 +294,14 @@ class ArNavActivity : ComponentActivity() {
             onCommand = { runOnUiThread { onHudCommand(it) } },
             onConnectionChanged = { connected ->
                 glassesConnected = connected
+                DiagnosticLog.record("Display", "Observer active=${glasses.observing} available=$connected mirror=$glassesMirror")
                 // Media buttons are only claimed while the wearer depends on
                 // them; otherwise this would silently break music controls.
                 mediaSession?.isActive = connected
                 if (!connected) hudMenu = HudMenuState.Closed
             }
         )
+        glasses.setMirror(true)
         setUpMediaSession()
         hasCameraPermission = ContextCompat.checkSelfPermission(
             this, Manifest.permission.CAMERA
@@ -245,6 +336,17 @@ class ArNavActivity : ComponentActivity() {
         renderer.signReader = signReader
         renderer.displayRotationDegrees = 0
 
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    headMotion.state.collect { refreshHeadHeading() }
+                }
+                launch {
+                    eyeCamera.state.collect { refreshHeadHeading() }
+                }
+            }
+        }
+
         // Back must not dump the user straight out of the app.
         //
         // The camera is the launcher screen, so the default behaviour was to
@@ -259,7 +361,7 @@ class ArNavActivity : ComponentActivity() {
                 // phone screen happens to show.
                 hudMenu !is HudMenuState.Closed -> hudMenu = HudMenuState.Closed
                 pickerVisible -> pickerVisible = false
-                calibration.step != CalibrationStep.DONE ->
+                !useEyeCamera && calibration.step != CalibrationStep.DONE ->
                     calibration = CalibrationState(CalibrationStep.DONE, 1f, "", "")
                 campus.target != null -> {
                     // Clear the destination rather than quitting: the user is
@@ -279,25 +381,225 @@ class ArNavActivity : ComponentActivity() {
                             title = "نحتاج إذن الكاميرا",
                             body = "يعرض التطبيق المسار على الأرض من خلال الكاميرا. " +
                                 "لا تغادر أي صورة جهازك.",
-                            actionLabel = "السماح",
+                            actionLabel = if (cameraPermissionBlocked) "فتح إعدادات التطبيق" else "السماح",
                             onAction = {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                if (cameraPermissionBlocked) {
+                                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        android.net.Uri.parse("package:$packageName")))
+                                } else {
+                                    cameraPermissionRequested = true
+                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                }
                             }
                         )
 
+                        useEyeCamera -> GlassesContent()
+
                         unsupportedReason != null -> BlockingMessage(
                             title = "AR غير مدعوم",
-                            body = unsupportedReason!!
+                            body = unsupportedReason!!,
+                            actionLabel = "استخدام كاميرا النظارة",
+                            onAction = { selectCamera(true) }
                         )
 
                         else -> ArNavContent()
                     }
 
+                    if ((!useEyeCamera || !hasCameraPermission) && !showIgnition) {
+                        TextButton(onClick = { exportDiagnosticLog() }, enabled = !exportingLog,
+                            modifier = Modifier.align(Alignment.TopEnd)
+                                .windowInsetsPadding(WindowInsets.statusBars)) {
+                            Text("حفظ سجل التشخيص", color = Color(0xFF4FC3F7))
+                        }
+                    }
                     if (showIgnition) {
                         IgnitionSplash(onFinished = { showIgnition = false })
                     }
                 }
             }
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun GlassesContent() {
+        val cameraState by eyeCamera.state.collectAsState()
+        val frame by eyeCamera.frame.collectAsState()
+        val motion by headMotion.state.collectAsState()
+        androidx.compose.runtime.SideEffect {
+            com.sarab.vision.platform.PlatformStore.get(this).apply {
+                cameraConnected = cameraState.streaming
+                imuTracking = motion.tracking
+                destinationName = campus.target?.name
+            }
+        }
+        Box(Modifier.fillMaxSize()) {
+            GlassesCameraScreen(
+                campus = campus,
+                cameraState = cameraState,
+                frame = frame,
+                motion = motion.copy(
+                    pitchDegrees = alignedGlassesTilt(motion.pitchDegrees, horizonPitch),
+                    rollDegrees = alignedGlassesTilt(motion.rollDegrees, horizonRoll),
+                ),
+                calibrated = northOffset != null,
+                displayConnected = glassesConnected,
+                horizontalFov = horizontalFov,
+                onFovChange = {
+                    horizontalFov = it
+                    getPreferences(MODE_PRIVATE).edit().putFloat("eye_horizontal_fov", it).apply()
+                },
+                onAlign = { alignHeadToPhone() },
+                onRetry = {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastEyeRetryMs >= 2_000) {
+                        lastEyeRetryMs = now
+                        DiagnosticLog.record("App", "activity=$activityInstance manual Eye + IMU reconnect")
+                        clearHeadAlignment()
+                        eyeCamera.stop()
+                        headMotion.stop()
+                        eyeCamera.start()
+                        headMotion.start()
+                    }
+                },
+                onPhoneCamera = { selectCamera(false) },
+                onPickDestination = { pickerVisible = true },
+                onExportLog = { exportDiagnosticLog() },
+                exportingLog = exportingLog,
+                onOpenTools = { startActivity(Intent(this@ArNavActivity, CampusActivity::class.java)) },
+                onOpenCompanion = { startActivity(Intent(this@ArNavActivity, com.sarab.vision.platform.CompanionActivity::class.java)) },
+                locationGranted = hasLocationPermission,
+                onEnableLocation = {
+                    if (hasLocationPermission) {
+                        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    } else if (locationPermissionRequested &&
+                        !shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")))
+                    } else {
+                        locationPermissionRequested = true
+                        locationPermissionLauncher.launch(arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        ))
+                    }
+                }
+            )
+            DestinationPicker(
+                landmarks = campus.landmarks,
+                userFix = campus.fix,
+                visible = pickerVisible,
+                onSelect = {
+                    campus.selectTarget(it)
+                    pickerVisible = false
+                },
+                onDismiss = { pickerVisible = false },
+                onOpenTools = {
+                    pickerVisible = false
+                    startActivity(Intent(this@ArNavActivity, CampusActivity::class.java))
+                }
+            )
+            hudMenuView(hudMenu, campus.fix?.position)?.let { menuView ->
+                GlassesHud(campus.guidance, campus.target?.name, null, false, menuView)
+                TextButton(onClick = { hudMenu = HudMenuState.Closed },
+                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+                    Text("إغلاق القائمة", color = Color.White)
+                }
+            }
+        }
+    }
+
+    private fun clearHeadAlignment() {
+        northOffset = null
+        horizonPitch = null
+        horizonRoll = null
+        alignedSession = null
+        if (campus.externalTrackingEnabled) campus.updateExternalHeading(null)
+    }
+
+    private fun alignHeadToPhone() {
+        val motion = headMotion.state.value
+        val yaw = motion.yawDegrees ?: return
+        val pitch = motion.pitchDegrees?.takeIf { it.isFinite() } ?: return
+        val roll = motion.rollDegrees?.takeIf { it.isFinite() } ?: return
+        val phone = campus.phoneHeadingDegrees ?: return
+        if (!motion.tracking || !campus.phoneHeadingReliable ||
+            (!campus.hasNorthReference && !campus.demoActive)) return
+        // One explicit alignment establishes north. Later phone movement must
+        // never steer arrows over a camera mounted on the wearer's head.
+        northOffset = phone - yaw
+        // The first IMU stillness may happen while looking down at the phone.
+        // The explicit horizon instruction establishes the camera's level pose.
+        horizonPitch = pitch
+        horizonRoll = roll
+        alignedSession = motion.sessionId
+        DiagnosticLog.record("Alignment", "Explicit north + horizon alignment accepted; session=${motion.sessionId}")
+        refreshHeadHeading()
+    }
+
+    private fun refreshHeadHeading() {
+        if (!useEyeCamera || !campus.externalTrackingEnabled) return
+        val motion = headMotion.state.value
+        if (!motion.tracking || alignedSession != motion.sessionId) {
+            clearHeadAlignment()
+            return
+        }
+        val offset = northOffset
+        val yaw = motion.yawDegrees
+        if (offset == null || yaw == null || !eyeCamera.state.value.streaming) {
+            campus.updateExternalHeading(null)
+            return
+        }
+        val heading = ((yaw + offset) % 360.0 + 360.0) % 360.0
+        val pitch = alignedGlassesTilt(motion.pitchDegrees, horizonPitch)
+        if (pitch == null || alignedGlassesTilt(motion.rollDegrees, horizonRoll) == null) {
+            campus.updateExternalHeading(null)
+            return
+        }
+        val tilt = kotlin.math.abs(kotlin.math.sin(Math.toRadians(pitch))).toFloat()
+        campus.updateExternalHeading(heading, tilt)
+    }
+
+    private fun selectCamera(eye: Boolean) {
+        if (useEyeCamera == eye) return
+        useEyeCamera = eye
+        DiagnosticLog.record("App", "Camera source selected: ${if (eye) "Eye + glasses IMU" else "phone ARCore"}")
+        requestedOrientation = if (eye) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        applyCameraWindow()
+        getPreferences(MODE_PRIVATE).edit().putBoolean("use_eye_camera", eye).apply()
+        unsupportedReason = null
+        clearHeadAlignment()
+        if (resumed) startNavigation()
+    }
+
+    private fun startNavigation() {
+        if (!hasCameraPermission || !resumed) return
+        campus.enableExternalTracking(useEyeCamera)
+        campus.startSensors()
+        campus.onUpdate = { syncRenderer(); onGuidanceTick() }
+        glassesMirror = true
+        glasses.setMirror(true)
+        glasses.start()
+        if (useEyeCamera) {
+            // ARCore's camera pose and floor belong to the phone. Feeding Eye
+            // images into that session would put arrows in the wrong frame.
+            if (session != null) {
+                surfaceView.onPause()
+                renderer.session = null
+                session?.pause()
+                session?.close()
+                session = null
+            }
+            signReader.reset()
+            signMatch = null
+            eyeCamera.start()
+            headMotion.start()
+            refreshHeadHeading()
+        } else {
+            eyeCamera.stop()
+            headMotion.stop()
+            syncRenderer()
+            ensureSessionAndResume()
         }
     }
 
@@ -404,8 +706,18 @@ class ArNavActivity : ComponentActivity() {
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 14.dp)
+                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp)
                 ) {
+                    Text(
+                        "كاميرا النظارة",
+                        color = Color(0xFF4FC3F7),
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .clickable { selectCamera(true) }
+                            .padding(horizontal = 12.dp, vertical = 12.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         "رجوع",
                         color = Color(0xFF4FC3F7),
@@ -693,7 +1005,7 @@ class ArNavActivity : ComponentActivity() {
     }
 
     private fun ensureSessionAndResume() {
-        if (!hasCameraPermission) return
+        if (!hasCameraPermission || useEyeCamera) return
 
         if (session == null) {
             try {
@@ -933,26 +1245,35 @@ class ArNavActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        logLifecycle("resumed")
+        applyCameraWindow()
+        resumed = true
+        hasLocationPermission = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
         hasCameraPermission = ContextCompat.checkSelfPermission(
             this, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasCameraPermission) {
-            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            if (!cameraPermissionRequested) {
+                cameraPermissionRequested = true
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
             return
         }
 
-        campus.startSensors()
-        campus.onUpdate = { syncRenderer(); onGuidanceTick() }
-        syncRenderer()
-        ensureSessionAndResume()
-        glasses.start()
+        startNavigation()
     }
 
     override fun onPause() {
+        logLifecycle("paused")
+        resumed = false
         super.onPause()
         glasses.stop()
         campus.onUpdate = null
+        campus.stopSensors()
+        campus.enableExternalTracking(false)
         if (session != null) {
             surfaceView.onPause()
             session?.pause()
@@ -966,7 +1287,21 @@ class ArNavActivity : ComponentActivity() {
         calibrationEntryChecked = false
     }
 
+    override fun onStop() {
+        com.sarab.vision.platform.PlatformStore.get(this).apply { cameraConnected = false; imuTracking = false }
+        logLifecycle("stopped changingConfigurations=$isChangingConfigurations finishing=$isFinishing")
+        // USB permission dialogs can pause the Activity; stopping onStop
+        // leaves their pending grant alive while still closing in background.
+        eyeCamera.stop()
+        headMotion.stop()
+        clearHeadAlignment()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        logLifecycle("destroyed changingConfigurations=$isChangingConfigurations finishing=$isFinishing")
+        eyeCamera.stop()
+        headMotion.stop()
         voice.shutdown()
         mediaSession?.release()
         mediaSession = null
@@ -976,5 +1311,39 @@ class ArNavActivity : ComponentActivity() {
         session?.close()
         session = null
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        logLifecycle("configuration changed")
+        applyCameraWindow()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyCameraWindow()
+    }
+
+    private fun applyCameraWindow() {
+        WindowCompat.setDecorFitsSystemWindows(window, !useEyeCamera)
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = if (useEyeCamera)
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (useEyeCamera) hide(WindowInsetsCompat.Type.systemBars())
+            else show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun logLifecycle(event: String) {
+        val config = resources.configuration
+        DiagnosticLog.record("App", "activity=$activityInstance $event eye=$useEyeCamera " +
+            "orientation=${config.orientation} screenDp=${config.screenWidthDp}x${config.screenHeightDp} " +
+            "density=${config.densityDpi} keyboard=${config.keyboard} navigation=${config.navigation}")
     }
 }

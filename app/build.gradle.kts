@@ -14,8 +14,8 @@ android {
         // mid-range devices in the field.
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0-campus"
+        versionCode = 6
+        versionName = "3.0-companion-preview"
 
         // NOTE: no ndk.abiFilters here. The ABI restriction lives in the
         // `splits` block below, and setting both is a configuration error.
@@ -48,6 +48,9 @@ android {
         compose = true
     }
 
+    // Source attribution travels with the APK, including offline installs.
+    sourceSets["main"].assets.srcDir(rootProject.file("third_party"))
+
     // Split by ABI.
     //
     // MapLibre's native library is ~12.5MB PER ABI, so shipping both in one
@@ -75,6 +78,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
     implementation(composeBom)

@@ -28,9 +28,8 @@ private const val TAG = "SarabGlasses"
 /**
  * Puts the navigation HUD on display glasses whenever a pair is plugged in.
  *
- * Glasses like the XREAL One are, to Android, nothing but a USB-C external
- * display: tracking, GPS and rendering all stay on the phone, and the
- * glasses' own chip anchors the picture in front of the wearer. By default
+ * This controller owns only the external-display output. Camera and motion
+ * belong to the separate glasses.camera and glasses.motion providers. By default
  * Android mirrors the phone screen onto them; the Presentation API lets this
  * app replace that mirror with a purpose-built landscape HUD while the phone
  * keeps the camera view and the touch controls.
@@ -57,7 +56,9 @@ class GlassesDisplayController(
 
     private var presentation: GlassesHudPresentation? = null
     private var lastConnected = false
-    private var mirror = false
+    private var mirror = true
+    var observing: Boolean = false
+        private set
 
     /** True while glasses (any external presentation display) are plugged in. */
     val connected: Boolean get() = lastConnected
@@ -73,23 +74,27 @@ class GlassesDisplayController(
      */
     fun setMirror(on: Boolean) {
         mirror = on
-        sync()
+        if (observing) sync()
     }
 
     private val listener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = sync()
         override fun onDisplayRemoved(displayId: Int) = sync()
-        override fun onDisplayChanged(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) = sync()
     }
 
-    /** Call from onResume: shows the HUD if glasses are already connected. */
+    /** Call from onResume: discovers the display and applies the selected mode. */
     fun start() {
-        displayManager.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        if (!observing) {
+            observing = true
+            displayManager.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        }
         sync()
     }
 
     /** Call from onPause: the HUD must not outlive the sensors feeding it. */
     fun stop() {
+        observing = false
         displayManager.unregisterDisplayListener(listener)
         presentation?.dismiss()
         presentation = null
@@ -100,6 +105,7 @@ class GlassesDisplayController(
     }
 
     private fun sync() {
+        if (!observing) return
         val display = displayManager
             .getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
             .firstOrNull { it.isValid }

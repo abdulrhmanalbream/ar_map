@@ -8,6 +8,8 @@
       convention.
     -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!--
       ARCore's motion tracking samples the gyroscope/accelerometer above
@@ -48,6 +50,15 @@
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+    </queries>
 
     <!-- GPS hardware is required for outdoor navigation. -->
     <uses-feature
@@ -56,7 +67,7 @@
 
     <uses-feature
         android:name="android.hardware.camera.ar"
-        android:required="true" />
+        android:required="false" />
     <uses-feature
         android:glEsVersion="0x00020000"
         android:required="true" />
@@ -82,7 +93,7 @@
         -->
         <meta-data
             android:name="com.google.ar.core"
-            android:value="required" />
+            android:value="optional" />
 
         <!--
           The camera IS the app. It launches straight into the live view with
@@ -93,7 +104,7 @@
         <activity
             android:name=".ArNavActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboard|keyboardHidden|navigation|touchscreen|uiMode"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.SarabVision">
             <intent-filter>
@@ -101,6 +112,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity android:name=".platform.CompanionActivity" android:exported="false" />
+        <service android:name=".platform.CompanionSyncService" android:exported="false"
+            android:foregroundServiceType="dataSync|location" />
+        <receiver android:name=".platform.AlertAckReceiver" android:exported="false" />
+        <service android:name=".wear.PhoneWearListenerService" android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/sarab/watch/" />
+            </intent-filter>
+        </service>
 
         <!-- Secondary: full-screen list, map and survey tools. -->
         <activity

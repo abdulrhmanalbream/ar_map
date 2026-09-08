@@ -1,5 +1,15 @@
 # Sarab Vision — offline AR campus navigation
 
+**Current glasses build (2026-09-08): `2.3-eye-preview`.** Direct XREAL Eye USB camera,
+glasses IMU, mirrored camera/route view, and downloadable diagnostic logs are now
+implemented. The user confirmed live Eye video on Fold 7, and their diagnostic log
+confirms concurrent IMU reception. Version 2.3 moves the road chevrons farther ahead,
+removes underfoot clutter and aligns the horizon explicitly along with north.
+Real-road alignment still needs a physical check.
+Read [the current Eye setup and limitations](docs/XREAL_EYE_SETUP.md) before testing.
+Build the APK and checks with `.\build.ps1 -Test`. The historical V2/device reports
+below do not verify the new Eye integration or full 6DoF.
+
 **V2 (Campus Edition).** Offline AR app: pick a campus destination, point the
 camera at the map board (which becomes the world origin), and follow a glowing
 multi-waypoint path along the floor to a labelled 3D marker.

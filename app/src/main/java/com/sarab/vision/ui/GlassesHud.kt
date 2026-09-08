@@ -50,9 +50,9 @@ private val Green = Color(0xFF7CE38B)
  * grey fog over everything the wearer sees, so this is bright strokes on
  * black and nothing else.
  *
- * The arrow turns with the PHONE's compass, not the wearer's head -- the
- * glasses expose no sensors to an app, only a display. Held normally in
- * front of the body while walking, the two agree closely enough to steer by.
+ * This optional legacy HUD receives whichever heading the caller supplies.
+ * Eye camera mode uses the separate glasses motion provider and mirrors its
+ * complete camera/route composition instead of opening this presentation.
  */
 @Composable
 fun GlassesHud(

@@ -50,6 +50,9 @@ private const val MANUAL_PLACEMENT_ACCURACY_M = 8f
 /** Which screen the user is on. */
 enum class AppMode { NAVIGATE, LIST, MAP, SURVEY, PATHS }
 
+/** Identifies the device that owns navigation orientation, including while waiting for a sample. */
+enum class CampusHeadingSource { PHONE, GLASSES, SIMULATED }
+
 /**
  * Holds all campus navigation state and owns the GPS/compass providers.
  *
@@ -71,6 +74,49 @@ class CampusState(private val context: Context) {
         private set
     var headingDegrees by mutableStateOf<Double?>(null)
         private set
+
+    /** A compass reference for an explicit glasses-to-north alignment, never automatic head tracking. */
+    var phoneHeadingDegrees by mutableStateOf<Double?>(null)
+        private set
+
+    val phoneHeadingReliable: Boolean
+        get() = phoneHeadingDegrees != null && !heading.needsCalibration &&
+            heading.source == com.sarab.vision.core.HeadingSource.CAMERA &&
+            heading.cameraTilt < 0.72f
+
+    val hasNorthReference: Boolean
+        get() = location.lastFix != null && !demoActive
+
+    var externalTrackingEnabled by mutableStateOf(false)
+        private set
+
+    val headingSource: CampusHeadingSource
+        get() = when {
+            externalTrackingEnabled -> CampusHeadingSource.GLASSES
+            demoActive && !useRealHeading -> CampusHeadingSource.SIMULATED
+            else -> CampusHeadingSource.PHONE
+        }
+
+    /** Selecting glasses must also work before they connect, without borrowing the phone pose. */
+    fun enableExternalTracking(enabled: Boolean) {
+        if (externalTrackingEnabled == enabled) return
+        externalTrackingEnabled = enabled
+        headingDegrees = if (enabled) null else {
+            if (demoActive && !useRealHeading) simulatedHeading else phoneHeadingDegrees
+        }
+        cameraTilt = if (enabled) 1f else heading.cameraTilt
+        compassNeedsCalibration = if (enabled) true else heading.needsCalibration
+        recomputeGuidance()
+    }
+
+    /** Main-thread input from the glasses provider after its explicit north alignment. */
+    fun updateExternalHeading(degrees: Double?, tilt: Float = 1f) {
+        if (!externalTrackingEnabled) return
+        headingDegrees = degrees?.takeIf { it.isFinite() }?.let { ((it % 360.0) + 360.0) % 360.0 }
+        cameraTilt = if (tilt.isFinite()) tilt.coerceIn(0f, 1f) else 1f
+        compassNeedsCalibration = headingDegrees == null
+        recomputeGuidance()
+    }
 
     /**
      * True when the magnetometer reports itself unreliable.
@@ -237,20 +283,21 @@ class CampusState(private val context: Context) {
     }
 
     fun startSensors(): Boolean {
-        heading.start()
         heading.onHeading = { deg ->
+            phoneHeadingDegrees = deg.takeIf { it.isFinite() }
             // Demo mode normally owns the heading, since a live reading would
             // fight the simulated turns. But when the user explicitly asks to
-            // test the real compass, it wins.
-            if (!demoActive || useRealHeading) {
-                headingDegrees = deg
+            // test the real compass, it wins. Neither can replace glasses data.
+            if (!externalTrackingEnabled && (!demoActive || useRealHeading)) {
+                headingDegrees = phoneHeadingDegrees
                 compassNeedsCalibration = heading.needsCalibration
                 recomputeGuidance()
             }
             // Tilt is a property of how the phone is physically held, so it
-            // stays live even while demo mode owns the heading.
-            cameraTilt = heading.cameraTilt
+            // stays live in phone/demo mode, but cannot stand in for head tilt.
+            if (!externalTrackingEnabled) cameraTilt = heading.cameraTilt
         }
+        heading.start()
 
         location.onFix = { f ->
             // Demo mode supplies its own position; a real fix arriving here
@@ -277,11 +324,16 @@ class CampusState(private val context: Context) {
     fun stopSensors() {
         location.stop()
         heading.stop()
+        phoneHeadingDegrees = null
     }
 
     fun isGpsEnabled() = location.isGpsEnabled()
 
     fun selectTarget(landmark: Landmark?) {
+        if (target?.id != landmark?.id) {
+            lastRoutedFrom = null
+            route = null
+        }
         target = landmark
         recomputeGuidance()
     }
@@ -327,7 +379,7 @@ class CampusState(private val context: Context) {
 
         // Fall back to whatever the real providers last reported.
         fix = location.lastFix
-        headingDegrees = null
+        if (!externalTrackingEnabled) headingDegrees = null
         recomputeGuidance()
         Log.i(TAG, "Demo stopped; restored ${landmarks.size} real landmarks")
     }
@@ -438,7 +490,7 @@ class CampusState(private val context: Context) {
         if (!demoActive) return
         useRealHeading = false
         simulatedHeading = (simulatedHeading + degrees + 360.0) % 360.0
-        headingDegrees = simulatedHeading
+        if (!externalTrackingEnabled) headingDegrees = simulatedHeading
         recomputeGuidance()
     }
 
@@ -454,7 +506,7 @@ class CampusState(private val context: Context) {
 
     fun toggleRealHeading() {
         useRealHeading = !useRealHeading
-        if (!useRealHeading) {
+        if (!useRealHeading && !externalTrackingEnabled) {
             // Freeze at whatever the compass last read, so the arrow does not
             // jump when handing control back to the buttons.
             simulatedHeading = headingDegrees ?: simulatedHeading
@@ -473,7 +525,7 @@ class CampusState(private val context: Context) {
         val from = fix?.position ?: simulatedPosition ?: return
         if (!from.isValid) return
 
-        val facing = headingDegrees ?: simulatedHeading
+        val facing = headingDegrees ?: if (externalTrackingEnabled) return else simulatedHeading
         val position = stepAlongBearing(from, facing, metres)
 
         val marker = Landmark(
@@ -494,14 +546,18 @@ class CampusState(private val context: Context) {
     private fun publishSimulatedFix() {
         val p = simulatedPosition ?: return
         fix = GpsFix(position = p, accuracyMeters = 5f, timestampMs = System.currentTimeMillis())
-        headingDegrees = simulatedHeading
+        if (!externalTrackingEnabled) headingDegrees = simulatedHeading
         recomputeGuidance()
     }
 
     private fun recomputeGuidance() {
         val position = fix?.position
         val t = target
-        guidance = if (position == null || t == null) {
+        // guidanceFor's legacy phone fallback treats an unknown heading as
+        // straight ahead. A missing glasses sample must never invent that turn.
+        guidance = if (position == null || t == null ||
+            (externalTrackingEnabled && headingDegrees == null)
+        ) {
             GuidanceMode.NoFix
         } else {
             guidanceFor(position, headingDegrees, t, landmarks)
