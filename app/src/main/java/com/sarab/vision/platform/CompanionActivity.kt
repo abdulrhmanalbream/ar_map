@@ -10,6 +10,9 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
+import com.sarab.vision.ui.Hedayah
+import com.sarab.vision.ui.HedayahTheme
+import com.sarab.vision.ui.HedayahMasthead
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,10 +21,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
@@ -70,12 +76,18 @@ class CompanionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
         store = PlatformStore.get(this)
         client = PlatformClient(store)
         tts = TextToSpeech(this) { ttsReady = it == TextToSpeech.SUCCESS }
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF006B5D), onPrimary = Color.White,
-                background = Color(0xFFF5F4EF), surface = Color(0xFFFFFEF9), onSurface = Color(0xFF17312D))) {
+            HedayahTheme {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { Screen() }
             }
         }
@@ -84,36 +96,55 @@ class CompanionActivity : ComponentActivity() {
         val state by store.state.collectAsState()
         val watch by PhoneWearBridge.get(this).state.collectAsState()
         val scroll = rememberScrollState()
+        val density = LocalDensity.current
+        val imeVisible = WindowInsets.ime.getBottom(density) > 0
+        val largeText = LocalConfiguration.current.fontScale > 1.15f
         LaunchedEffect(state.enrolled) { if (!state.enrolled) { history.clear(); proposedId = null; localReply = false } }
-        Surface(Modifier.fillMaxSize()) {
+        Surface(Modifier.fillMaxSize(), color = Hedayah.Ivory) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(horizontal = 20.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { finish() }) { Text("العودة للكاميرا") }
-                    Text("المطوف الذكي", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.End, maxLines = 2, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+                if (!imeVisible) {
+                    Spacer(Modifier.height(12.dp))
+                    HedayahMasthead(compact = true)
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FilterChip(selected = page == 0, onClick = { page = 0 }, label = { Text("المساعد") })
-                    FilterChip(selected = page == 1, onClick = { page = 1 }, label = { Text("مجموعتي والساعة") })
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { finish() }) { Text("العودة للكاميرا", style = MaterialTheme.typography.labelMedium) }
+                    if (imeVisible) Text(if (state.enrolled) "المساعد" else "ربط المجموعة",
+                        style = MaterialTheme.typography.titleSmall)
                 }
-                Column(Modifier.weight(1f).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (!imeVisible) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FilterChip(selected = page == 0, onClick = { page = 0 },
+                            label = { Text("المساعد", style = MaterialTheme.typography.labelMedium, maxLines = 2) },
+                            modifier = Modifier.weight(1f).heightIn(min = if (largeText) 64.dp else 48.dp))
+                        FilterChip(selected = page == 1, onClick = { page = 1 },
+                            label = { Text("مجموعتي والساعة", style = MaterialTheme.typography.labelMedium, maxLines = 2) },
+                            modifier = Modifier.weight(1f).heightIn(min = if (largeText) 64.dp else 48.dp))
+                    }
+                }
+                Column(Modifier.weight(1f).verticalScroll(scroll).padding(top = if (imeVisible) 4.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (notice.isNotBlank()) Text(notice, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                     if (!state.enrolled) Enrollment()
                     else if (page == 0) {
-                        Text("معك في الطريق", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                        Text("تحدث بلغتك، واختر وجهتك من الأماكن المحفوظة. سأعرض الوجهة قبل بدء الملاحة.")
+                        Text("معك في الرحلة", style = MaterialTheme.typography.headlineLarge)
+                        Text("للسؤال عن معلم تراه أو ترجمة لوحة، ارجع إلى الكاميرا واختر العنصر. هنا يمكنك التحدث مع المساعد العام واختيار وجهة محفوظة.")
+                        OutlinedButton(onClick = { finish() }, modifier = Modifier.fillMaxWidth()) { Text("افتح المرافق البصري") }
                         LanguageChoice(state.language)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("قراءة الرد بصوت")
                             Switch(checked = speakingEnabled, onCheckedChange = { speakingEnabled = it; if (!it) tts?.stop() })
                         }
                         if (history.isEmpty()) {
-                            Text("جرّب: وين أقرب وجهة؟ أو اكتب اسم المكان اللي تبيه.", modifier = Modifier.padding(vertical = 24.dp))
+                            Column(Modifier.fillMaxWidth().background(Hedayah.Soft, MaterialTheme.shapes.medium).padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("ابدأ بوجهتك", style = MaterialTheme.typography.titleMedium)
+                                Text("جرّب: وين أقرب وجهة؟ أو اكتب اسم المكان اللي تبيه.", color = Hedayah.Muted)
+                            }
                         }
                         history.forEach { line ->
-                            Surface(color = if (line.role == "user") Color(0xFFE1ECE6) else Color(0xFFF0F0E9), shape = MaterialTheme.shapes.medium) {
+                            Surface(color = if (line.role == "user") Hedayah.Soft else Hedayah.Paper, shape = MaterialTheme.shapes.medium) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text(if (line.role == "user") "أنت" else "المطوف الذكي", style = MaterialTheme.typography.labelMedium)
-                                    Text(line.text, fontSize = 18.sp)
+                                    Text(if (line.role == "user") "أنت" else "المطوف الذكي", color = Hedayah.DarkGold, style = MaterialTheme.typography.labelMedium)
+                                    Text(line.text, style = MaterialTheme.typography.bodyLarge)
                                 }
                             }
                         }
@@ -130,7 +161,7 @@ class CompanionActivity : ComponentActivity() {
                         }
                         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     } else {
-                        Text(state.groupName, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        Text(state.groupName, style = MaterialTheme.typography.headlineLarge)
                         Text(state.message)
                         state.deliveryIssue?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (state.lastSync > 0) Text("آخر اتصال: ${java.text.DateFormat.getTimeInstance().format(java.util.Date(state.lastSync))}")
@@ -168,7 +199,7 @@ class CompanionActivity : ComponentActivity() {
                             Text("${if (lap.optString("mode") == "sai") "السعي" else "الطواف"}: ${lap.optInt("count")} / 7", fontSize = 24.sp)
                             Text("العدد مؤكد يدوياً من الساعة، ويمكن التراجع عن آخر شوط.", style = MaterialTheme.typography.bodySmall)
                         }
-                        Button(onClick = { queueHelp() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9C3D2C))) {
+                        Button(onClick = { queueHelp() }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Hedayah.Error)) {
                             Text("أحتاج مساعدة · تنبيه مجموعتي")
                         }
                         if (state.helpPending) TextButton(onClick = { store.clearHelp() }) { Text("أنا بخير الآن · إلغاء حالة طلب المساعدة") }
@@ -176,7 +207,7 @@ class CompanionActivity : ComponentActivity() {
                         if (state.alerts.isEmpty()) Text("لا توجد تنبيهات مستلمة بعد.")
                         state.alerts.asReversed().forEach { raw ->
                             val alert = JSONObject(raw)
-                            Surface(color = Color(0xFFF0F0E9), shape = MaterialTheme.shapes.medium) {
+                            Surface(color = Hedayah.Paper, shape = MaterialTheme.shapes.medium) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
                                     Text(alert.optString("sourceName", "المجموعة"), fontWeight = FontWeight.Bold)
                                     Text(alert.optString("message"))
@@ -190,15 +221,17 @@ class CompanionActivity : ComponentActivity() {
                     Spacer(Modifier.height(16.dp))
                 }
                 if (state.enrolled && page == 0) {
+                    HorizontalDivider(color = Hedayah.Outline)
+                    Spacer(Modifier.height(12.dp))
                     OutlinedTextField(value = input, onValueChange = { input = it.take(2000) }, label = { Text("اكتب للمساعد") },
-                        enabled = !busy, modifier = Modifier.fillMaxWidth(), maxLines = 4)
+                        enabled = !busy, modifier = Modifier.fillMaxWidth(), maxLines = if (imeVisible) 2 else 4)
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { ask() }, enabled = !busy && input.isNotBlank(), modifier = Modifier.weight(1f)) { Text("إرسال") }
+                        Button(onClick = { ask() }, enabled = !busy && input.isNotBlank(), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("إرسال") }
                         OutlinedButton(onClick = {
                             if (listening) { speech?.stopListening(); listening = false }
                             else if (ContextCompat.checkSelfPermission(this@CompanionActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listen()
                             else microphone.launch(Manifest.permission.RECORD_AUDIO)
-                        }, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (listening) "إنهاء الاستماع" else "تحدث") }
+                        }, enabled = !busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (listening) "إنهاء الاستماع" else "تحدث") }
                     }
                 }
             }
@@ -206,32 +239,63 @@ class CompanionActivity : ComponentActivity() {
     }
 
     @Composable private fun Enrollment() {
-        var url by remember { mutableStateOf(store.server) }
-        var code by remember { mutableStateOf("") }
-        var name by remember { mutableStateOf(store.snapshot.name) }
-        Text("اربط مجموعتك", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Text("خذ رمز الربط من المشرف في لوحة المطوف الذكي. مشاركة موقعك تحتاج تفعيلك بعد الربط.")
-        OutlinedTextField(value = name, onValueChange = { name = it.take(60) }, label = { Text("اسمك لدى المجموعة") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(value = code, onValueChange = { code = it.trim().take(64) }, label = { Text("رمز المجموعة") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        LanguageChoice(store.snapshot.language)
-        OutlinedTextField(value = url, onValueChange = { url = it.take(240) }, label = { Text("عنوان خادم المطوف الذكي") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(onClick = {
-            busy = true; notice = ""
-            lifecycleScope.launch {
-                try {
-                    val normalized = PlatformStore.validatedServer(url)
-                    val result = client.request("/devices/enroll", JSONObject().put("code", code).put("name", name.trim()).put("language", store.snapshot.language), normalized, false)
-                    store.enroll(normalized, name.trim(), store.snapshot.language, result)
-                    page = 1
-                } catch (e: Exception) { notice = e.message ?: "تعذر الربط؛ راجع الرمز والاتصال" }
-                finally { busy = false }
-            }
-        }, enabled = !busy && name.isNotBlank() && code.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text(if (busy) "جارٍ الربط…" else "ربط المجموعة") }
+        var url by rememberSaveable { mutableStateOf(store.server) }
+        var code by rememberSaveable { mutableStateOf("") }
+        var name by rememberSaveable { mutableStateOf(store.snapshot.name) }
+        var privateGroup by rememberSaveable { mutableStateOf(false) }
+        var serverSettings by rememberSaveable { mutableStateOf(false) }
+        Text("ربط المساعد", style = MaterialTheme.typography.headlineLarge)
+        Text(if (privateGroup) "أدخل رمز مجموعتك الخاصة من المشرف."
+            else "انضم باسمك إلى مجموعة المطوف الذكي العامة، دون رمز دعوة.")
+        OutlinedTextField(value = name, onValueChange = { name = it.take(60) }, label = { Text("اسمك لدى المجموعة") },
+            enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        if (privateGroup) OutlinedTextField(value = code, onValueChange = { code = it.trim().take(64) },
+            label = { Text("رمز المجموعة الخاصة") }, enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        LanguageChoice(store.snapshot.language, enabled = !busy)
+        Column(Modifier.fillMaxWidth().background(Hedayah.Soft, MaterialTheme.shapes.medium).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (privateGroup) "مجموعتك الخاصة" else "مجموعة مفتوحة للجميع", style = MaterialTheme.typography.titleSmall)
+            Text(if (privateGroup) "تنبيهات المساعدة والتجمع تصل إلى أعضاء مجموعتك ومشرفها."
+                else "عند إرسال تنبيه مساعدة أو تجمع، يصل إلى أعضاء المجموعة العامة ومشرفها.",
+                style = MaterialTheme.typography.bodyMedium)
+            Text("الانضمام لا يفعّل مشاركة الموقع أو إرسال لقطات الكاميرا. تفعّل كل خيار بنفسك لاحقاً؛ عدّاد الأشواط يعمل دون ربط.",
+                style = MaterialTheme.typography.bodySmall, color = Hedayah.Muted)
+        }
+        Button(onClick = { enroll(url, name, if (privateGroup) code else null) },
+            enabled = !busy && name.isNotBlank() && (!privateGroup || code.isNotBlank()),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(if (busy) "جارٍ الانضمام…" else if (privateGroup) "الانضمام للمجموعة الخاصة" else "الانضمام للمجموعة العامة")
+        }
+        OutlinedButton(onClick = { privateGroup = !privateGroup; notice = "" }, enabled = !busy,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(if (privateGroup) "العودة للمجموعة العامة" else "لدي رمز مجموعة خاصة")
+        }
+        TextButton(onClick = { serverSettings = !serverSettings }, enabled = !busy,
+            modifier = Modifier.heightIn(min = 48.dp)) { Text(if (serverSettings) "إخفاء إعدادات الخادم" else "إعدادات الخادم") }
+        if (serverSettings) OutlinedTextField(value = url, onValueChange = { url = it.take(240) },
+            label = { Text("عنوان خادم المطوف الذكي") }, enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true)
     }
-    @Composable private fun LanguageChoice(language: String) {
+    private fun enroll(url: String, name: String, code: String?) {
+        if (busy || store.snapshot.enrolled) return
+        val enrollment = runCatching { enrollmentRequest(name, store.snapshot.language, code) }.getOrElse {
+            notice = it.message ?: "راجع بيانات الانضمام"; return
+        }
+        busy = true; notice = ""
+        lifecycleScope.launch {
+            try {
+                val normalized = PlatformStore.validatedServer(url)
+                val result = client.request(enrollment.path, enrollment.body, normalized, false)
+                store.enroll(normalized, enrollment.name, enrollment.language, result)
+                if (intent.getBooleanExtra("return_to_vision", false)) finish() else page = 1
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (e: Exception) { notice = e.message ?: "تعذر الانضمام؛ تحقق من الاتصال وحاول مجدداً" }
+            finally { busy = false }
+        }
+    }
+    @Composable private fun LanguageChoice(language: String, enabled: Boolean = true) {
         var open by remember { mutableStateOf(false) }
         Box {
-            OutlinedButton(onClick = { open = true }) { Text("لغة الحديث: ${languages.firstOrNull { it.first == language }?.second ?: language}") }
+            OutlinedButton(onClick = { open = true }, enabled = enabled) { Text("لغة الحديث: ${languages.firstOrNull { it.first == language }?.second ?: language}") }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 languages.forEach { (code, label) -> DropdownMenuItem(text = { Text(label) }, onClick = { store.language(code); open = false }) }
             }

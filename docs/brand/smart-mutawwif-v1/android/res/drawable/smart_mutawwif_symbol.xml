@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same original vector paths as source/smart-mutawwif-symbol.svg.
+     108dp adaptive-icon canvas; artwork fits within the central 66dp safe circle.
+     Transparent symbol resource, not a complete launcher icon or notification icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:name="outer_arch"
+        android:fillColor="#173E35"
+        android:pathData="M54.2751 25 C51.5237 27.8615 45.5806 31.0531 41.2884 34.4649 C36.556 38.2068 33.4744 43.1594 33.4744 49.1025 L33.4744 63.5199 C34.4649 62.4194 35.6755 61.4288 36.9962 60.8786 L36.9962 50.9734 C36.9962 43.1594 44.37 37.3264 54.1651 32.2638 C63.9602 37.3264 71.334 43.1594 71.334 50.9734 L71.334 60.9886 C72.7647 61.8691 73.9753 62.9696 74.9658 64.1803 L74.9658 49.1025 C74.9658 43.1594 71.8843 38.2068 67.1518 34.4649 C62.8596 31.0531 56.9165 27.8615 54.2751 25 Z" />
+    <path
+        android:name="inner_arch"
+        android:fillColor="#173E35"
+        android:pathData="M38.2068 59.3378 L38.2068 52.1841 C38.2068 44.37 44.1499 39.3074 54.1651 34.1347 C64.1803 39.3074 70.1233 44.37 70.1233 52.1841 L70.1233 59.3378 L70.0133 55.4858 C69.7932 48.8824 63.74 43.1594 54.1651 38.4269 C44.5901 43.1594 38.537 48.8824 38.3169 55.4858 Z" />
+    <path
+        android:name="center"
+        android:fillColor="#173E35"
+        android:pathData="M54.1651 53.6148 L60.8786 56.1461 L60.8786 64.7306 L54.1651 67.1518 L47.3416 64.7306 L47.3416 56.1461 Z" />
+    <path
+        android:name="tawaf_gold"
+        android:fillColor="#B89B5C"
+        android:pathData="M62.5294 59.2277 C69.6831 60.6584 74.4156 63.2998 74.4156 66.8216 C74.4156 69.7932 71.334 71.8843 65.9412 73.6452 C63.74 71.8843 60.5484 70.7837 55.926 70.3435 C61.759 69.463 70.0133 68.4725 70.0133 65.1708 C70.0133 62.9696 66.8216 61.2087 62.5294 60.2182 Z" />
+    <path
+        android:name="tawaf_green"
+        android:fillColor="#173E35"
+        android:pathData="M45.6907 59.2277 L45.6907 60.2182 C41.5085 61.2087 38.7571 63.2998 38.7571 65.5009 C38.7571 69.6831 47.8918 69.9032 53.945 71.0038 C62.6395 72.4345 67.7021 75.8463 67.482 83 C63.8501 78.0474 56.5863 77.0569 48.8824 75.9564 C40.7381 74.7457 34.0247 73.0949 33.1442 68.3624 C31.9336 63.8501 37.2163 60.8786 45.6907 59.2277 Z" />
+</vector>

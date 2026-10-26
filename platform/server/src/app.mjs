@@ -8,6 +8,11 @@ import { ApiError, object, string, language, array, choice, boolean, telemetry, 
 import { digest, token, hashPassword, verifyPassword, RateLimiter } from './security.mjs';
 import { openStore, transaction } from './store.mjs';
 import { createAssistant } from './assistant.mjs';
+import { createVision, visionRequest, VISION_BODY_LIMIT } from './vision.mjs';
+import { createSpeech, speechRequest } from './speech.mjs';
+import { VisionAdmission } from './vision-admission.mjs';
+import { DEFAULT_GROUP_ID, ensureDefaultGroup } from './default-group.mjs';
+import { publicDashboard } from './public-dashboard.mjs';
 
 const PREFIX = '/api/v1';
 const DAY = 86400000;
@@ -18,7 +23,7 @@ const ALERT_TTL_MS = DAY;
 const LOCATION_RETENTION_MS = DAY;
 
 function iso(time) { return new Date(time).toISOString(); }
-function groupSummary(row) { return { id: row.id, name: row.name, memberCount: Number(row.member_count ?? 0) }; }
+function groupSummary(row) { return { id: row.id, name: row.name, memberCount: Number(row.member_count ?? 0), isDefault: row.id === DEFAULT_GROUP_ID }; }
 function deviceIdentity(row) { return { id: row.id, name: row.name, groupId: row.group_id }; }
 function userIdentity(row) { return { id: row.id, name: row.name, role: row.role }; }
 
@@ -35,22 +40,36 @@ function json(res, status, data) {
   res.end(status === 204 ? undefined : JSON.stringify(data));
 }
 
-async function readJson(req) {
+async function readJson(req, limit = BODY_LIMIT, timeoutMs = 0) {
   const size = Number(req.headers['content-length']);
-  if (Number.isFinite(size) && size > BODY_LIMIT) {
+  if (Number.isFinite(size) && size > limit) {
     req.resume();
-    throw new ApiError(413, 'BODY_TOO_LARGE', 'Request exceeds 64 KiB');
+    throw new ApiError(413, 'BODY_TOO_LARGE', `Request exceeds ${limit / 1024} KiB`);
   }
   const type = req.headers['content-type']?.split(';')[0].trim().toLowerCase();
   if (type !== 'application/json') throw new ApiError(415, 'JSON_REQUIRED', 'Content-Type must be application/json');
-  let length = 0;
-  const chunks = [];
-  for await (const chunk of req) {
-    length += chunk.length;
-    if (length > BODY_LIMIT) throw new ApiError(413, 'BODY_TOO_LARGE', 'Request exceeds 64 KiB');
-    chunks.push(chunk);
-  }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  // A bounded listener keeps oversized chunked requests from destroying the response
+  // socket before the caller can send a useful 413. No body is retained after parsing.
+  const bytes = await new Promise((resolveBody, rejectBody) => {
+    let length = 0;
+    const chunks = [];
+    const timer = timeoutMs ? setTimeout(() => finish(new ApiError(408, 'BODY_TIMEOUT', 'Request body took too long')), timeoutMs) : null;
+    const finish = (error, body) => {
+      if (timer) clearTimeout(timer);
+      req.off('data', onData); req.off('end', onEnd); req.off('error', onError); req.off('aborted', onAborted);
+      if (error) { req.resume(); rejectBody(error); } else resolveBody(body);
+    };
+    const onData = chunk => {
+      length += chunk.length;
+      if (length > limit) { chunks.length = 0; finish(new ApiError(413, 'BODY_TOO_LARGE', `Request exceeds ${limit / 1024} KiB`)); }
+      else chunks.push(chunk);
+    };
+    const onEnd = () => finish(null, Buffer.concat(chunks));
+    const onError = () => finish(new ApiError(400, 'INVALID_REQUEST', 'Request body could not be read'));
+    const onAborted = () => finish(new ApiError(400, 'INVALID_REQUEST', 'Request body was interrupted'));
+    req.on('data', onData); req.once('end', onEnd); req.once('error', onError); req.once('aborted', onAborted);
+  });
+  try { return JSON.parse(bytes.toString('utf8')); }
   catch { throw new ApiError(400, 'INVALID_JSON', 'Request must contain valid JSON'); }
 }
 
@@ -68,7 +87,12 @@ export async function createPlatform(options = {}) {
     adminPassword: options.adminPassword, now,
   });
   const rate = new RateLimiter(now);
+  const defaultGroup = ensureDefaultGroup(db, options.adminUsername, now);
   const ai = createAssistant({ apiKey: options.apiKey, model: options.model, geminiApiKey: options.geminiApiKey, geminiModel: options.geminiModel, fetchImpl: options.fetchImpl, timeoutMs: options.aiTimeoutMs });
+  const vision = createVision({ geminiApiKey: options.geminiApiKey, geminiModel: options.geminiModel, fetchImpl: options.visionFetchImpl ?? options.fetchImpl, timeoutMs: options.aiTimeoutMs });
+  const visionRequests = new VisionAdmission(options.visionAdmission);
+  const speech = createSpeech({ geminiApiKey: options.geminiApiKey, geminiModel: options.speechModel, fetchImpl: options.speechFetchImpl ?? options.fetchImpl, timeoutMs: options.speechTimeoutMs });
+  const speechRequests = new VisionAdmission({ concurrency: 2, maxWaiting: 6, waitMs: 4000, ...options.speechAdmission });
   const dummyPassword = await hashPassword(token());
   let hashing = 0;
   let closed = false;
@@ -119,6 +143,14 @@ export async function createPlatform(options = {}) {
       sharingEnabled: !!row.sharing_enabled, stale,
       locationStale: location != null && Date.parse(location.recordedAt) < now() - LOCATION_STALE_MS,
     };
+  }
+
+  function enrollDevice(group, name, locale) {
+    const count = db.prepare('SELECT COUNT(*) count FROM devices d JOIN groups g ON g.id=d.group_id WHERE g.owner_id=? AND d.revoked_at IS NULL').get(group.owner_id).count;
+    if (count >= 5000) throw new ApiError(409, 'CAPACITY_REACHED', 'Device capacity reached');
+    const id = randomUUID();
+    db.prepare('INSERT INTO devices(id,group_id,name,language,created_at) VALUES(?,?,?,?,?)').run(id, group.id, name, locale, iso(now()));
+    return { token: createSession('device', id), device: { id, name, groupId: group.id }, group: { id: group.id, name: group.name } };
   }
 
   function fullAlert(id) {
@@ -193,6 +225,13 @@ export async function createPlatform(options = {}) {
     if (method === 'GET' && path === `${PREFIX}/health`) {
       return json(res, 200, { status: 'ok', aiConfigured: ai.provider !== 'local', aiProvider: ai.provider, version: '3.0' });
     }
+    if (method === 'GET' && path === `${PREFIX}/public/dashboard`) {
+      rate.take(`public-dashboard:${remote}`, 180);
+      if (url.search) fail('Public dashboard does not accept scope or filter parameters');
+      if (!defaultGroup) throw new ApiError(503, 'DEFAULT_GROUP_UNAVAILABLE', 'The public group is unavailable');
+      return json(res, 200, publicDashboard(db, defaultGroup,
+        { aiConfigured: ai.provider !== 'local', aiProvider: ai.provider }, now()));
+    }
     if (method === 'POST' && path === `${PREFIX}/auth/login`) {
       rate.take(`login-ip:${remote}`, 20, 15 * 60_000);
       const body = object(await readJson(req), ['username', 'password']);
@@ -209,6 +248,15 @@ export async function createPlatform(options = {}) {
       if (!valid || !user) throw new ApiError(401, 'INVALID_CREDENTIALS', 'Username or password is incorrect');
       return json(res, 200, { token: createSession('admin', user.id), user: userIdentity(user) });
     }
+    if (method === 'POST' && path === `${PREFIX}/devices/enroll-default`) {
+      rate.take(`enroll:${remote}`, 30, 15 * 60_000);
+      const body = object(await readJson(req), ['name', 'language']);
+      const name = string(body.name, 'name', 1, 80);
+      const locale = language(body.language);
+      if (!defaultGroup) throw new ApiError(503, 'DEFAULT_GROUP_UNAVAILABLE', 'The public group is unavailable. Use an invitation code or try again later.');
+      const result = transaction(db, () => enrollDevice(defaultGroup, name, locale));
+      return json(res, 201, result);
+    }
     if (method === 'POST' && path === `${PREFIX}/devices/enroll`) {
       rate.take(`enroll:${remote}`, 30, 15 * 60_000);
       const body = object(await readJson(req), ['code', 'name', 'language']);
@@ -220,12 +268,9 @@ export async function createPlatform(options = {}) {
         const enrollment = db.prepare('SELECT * FROM enrollment_codes WHERE code_hash=? AND expires_at>? AND uses<max_uses').get(digest(code), iso(now()));
         if (!enrollment) throw new ApiError(400, 'INVALID_ENROLLMENT', 'Enrollment code is invalid, expired, or fully used');
         const group = getGroup.get(enrollment.group_id);
-        const count = db.prepare('SELECT COUNT(*) count FROM devices d JOIN groups g ON g.id=d.group_id WHERE g.owner_id=? AND d.revoked_at IS NULL').get(group.owner_id).count;
-        if (count >= 5000) throw new ApiError(409, 'CAPACITY_REACHED', 'Device capacity reached');
-        const id = randomUUID();
-        db.prepare('INSERT INTO devices(id,group_id,name,language,created_at) VALUES(?,?,?,?,?)').run(id, group.id, name, locale, iso(now()));
+        const device = enrollDevice(group, name, locale);
         db.prepare('UPDATE enrollment_codes SET uses=uses+1 WHERE code_hash=?').run(digest(code));
-        return { token: createSession('device', id), device: { id, name, groupId: group.id }, group: { id: group.id, name: group.name } };
+        return device;
       });
       return json(res, 201, result);
     }
@@ -394,6 +439,60 @@ export async function createPlatform(options = {}) {
       const request = assistantRequest(await readJson(req));
       return json(res, 200, await ai(request));
     }
+    if (method === 'POST' && [ `${PREFIX}/vision/analyze`, `${PREFIX}/vision/ask` ].includes(path)) {
+      device(); // Authenticate and reject administrator tokens BEFORE reading image bytes.
+      const mode = path.endsWith('/analyze') ? 'analyze' : 'ask';
+      rate.take(`vision-${mode}:${actor.id}`, 30);
+      rate.take('vision-global', 240);
+      const waiting = new AbortController();
+      const abortWaiting = () => waiting.abort();
+      res.once('close', abortWaiting);
+      let release;
+      try {
+        release = await visionRequests.acquire(actor.id, mode === 'ask', waiting.signal);
+        if (res.destroyed) return;
+        let body;
+        try { body = await readJson(req, VISION_BODY_LIMIT, 50000); }
+        catch (error) {
+          if (error instanceof ApiError && error.code === 'BODY_TIMEOUT') {
+            const uploadError = new ApiError(408, 'VISION_UPLOAD_TIMEOUT', 'The image upload took too long. Check the connection and try again.');
+            uploadError.retryable = true;
+            uploadError.retryAfterSeconds = 2;
+            throw uploadError;
+          }
+          throw error;
+        }
+        const request = visionRequest(body, mode);
+        return json(res, 200, await vision(request, mode));
+      } finally { release?.(); res.off('close', abortWaiting); }
+    }
+    if (method === 'POST' && path === `${PREFIX}/vision/speak`) {
+      device(); // Speech text is read only after device authentication/admission.
+      rate.take(`speech:${actor.id}`, 24);
+      rate.take('speech-global', 120);
+      const waiting = new AbortController();
+      const abortWaiting = () => waiting.abort();
+      res.once('close', abortWaiting);
+      let release;
+      try {
+        release = await speechRequests.acquire(actor.id, false, waiting.signal);
+        if (res.destroyed) return;
+        const request = speechRequest(await readJson(req, BODY_LIMIT, 5000));
+        const audio = await speech(request);
+        if (res.destroyed) return;
+        res.writeHead(200, { 'Content-Type': 'audio/pcm', 'Cache-Control': 'no-store', 'Content-Length': audio.pcm.length,
+          'X-Audio-Format': 'pcm_s16le', 'X-Sample-Rate': String(audio.sampleRate) });
+        // Keep the audio buffer inside admission until it is written or the
+        // consumer disconnects. A stalled consumer cannot retain a slot forever.
+        await new Promise(resolveWritten => {
+          const finish = () => { clearTimeout(timer); res.off('close', finish); resolveWritten(); };
+          const timer = setTimeout(() => { res.destroy(); finish(); }, 15000);
+          res.once('close', finish);
+          res.end(audio.pcm, finish);
+        });
+      } finally { release?.(); res.off('close', abortWaiting); }
+      return;
+    }
     throw new ApiError(404, 'NOT_FOUND', 'API endpoint not found');
   }
 
@@ -426,26 +525,31 @@ export async function createPlatform(options = {}) {
     headers(res);
     try {
       if (!req.url || req.url.length > 2048) throw new ApiError(414, 'URI_TOO_LONG', 'Request URL is too long');
-      if (Number(req.headers['content-length']) > BODY_LIMIT) {
+      const url = new URL(req.url, 'http://localhost');
+      const authenticatedBodyRoute = req.method === 'POST' && [`${PREFIX}/vision/analyze`, `${PREFIX}/vision/ask`, `${PREFIX}/vision/speak`].includes(url.pathname);
+      if (!authenticatedBodyRoute && Number(req.headers['content-length']) > BODY_LIMIT) {
         req.resume();
         throw new ApiError(413, 'BODY_TOO_LARGE', 'Request exceeds 64 KiB');
       }
-      const url = new URL(req.url, 'http://localhost');
       if (url.pathname.startsWith('/api/')) await routes(req, res, url);
       else await staticFile(req, res, url);
     } catch (error) {
       if (res.headersSent || res.destroyed) { res.destroy(); return; }
       if (error instanceof ApiError) {
-        if (error.status === 429) res.setHeader('Retry-After', '60');
-        if (error.status === 413) res.setHeader('Connection', 'close');
-        json(res, error.status, { error: error.message, code: error.code });
+        const retryAfterSeconds = Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds >= 0
+          ? Math.min(3600, error.retryAfterSeconds) : undefined;
+        if (retryAfterSeconds !== undefined || error.status === 429) res.setHeader('Retry-After', String(retryAfterSeconds ?? 60));
+        if (error.status === 413 || error.status === 408 || (!req.complete && req.url?.startsWith(`${PREFIX}/vision/`))) res.setHeader('Connection', 'close');
+        json(res, error.status, { error: error.message, code: error.code,
+          ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
+          ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}) });
       } else {
         // Avoid raw exceptions: SQLite/provider errors can contain sensitive data.
         json(res, 500, { error: 'The request could not be completed', code: 'INTERNAL_ERROR' });
       }
     }
   });
-  server.requestTimeout = 20000;
+  server.requestTimeout = 90000;
   server.headersTimeout = 15000;
   server.keepAliveTimeout = 5000;
   server.maxHeadersCount = 64;

@@ -42,7 +42,7 @@ const screenshots = path.resolve('playwright-results/production');
 await fs.mkdir(screenshots, { recursive: true });
 let loggedIn = false;
 try {
-  const mainResponse = await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  const mainResponse = await page.goto(new URL('/dashboard/admin', base).href, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   assert.equal(mainResponse.status(), 200);
   assert.ok(mainResponse.headers()['content-security-policy']);
   await page.getByRole('heading', { name: 'أهلًا بعودتك' }).waitFor();

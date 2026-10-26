@@ -44,16 +44,20 @@ class PlatformClient(private val store: PlatformStore) {
             if (code !in 200..299) {
                 if (code == 401 && authenticated) store.invalidateSession(requestToken)
                 com.sarab.vision.diagnostics.DiagnosticLog.record("Platform", "API request failed status=$code")
-                throw PlatformException(code, when (code) {
-                401, 403 -> "تعذّر التحقق من الربط أو رمز المجموعة"
-                429 -> "طلبات كثيرة؛ حاول بعد قليل"
-                else -> "تعذّر الاتصال بالخدمة ($code)"
-                })
+                throw PlatformException(code, platformErrorMessage(code, json))
             }
             json
         } finally { connection.disconnect() }
     }
     companion object { private val privacyMutex = Mutex() }
+}
+
+internal fun platformErrorMessage(status: Int, response: JSONObject): String = when {
+    status == 503 && response.optString("code") == "DEFAULT_GROUP_UNAVAILABLE" ->
+        "المجموعة العامة غير متاحة الآن؛ حاول لاحقاً أو استخدم رمز مجموعة خاصة من المشرف"
+    status == 401 || status == 403 -> "تعذّر التحقق من الربط أو رمز المجموعة"
+    status == 429 -> "طلبات كثيرة؛ حاول بعد قليل"
+    else -> "تعذّر الاتصال بالخدمة ($status)"
 }
 
 private fun java.io.InputStream.readBytesLimited(limit: Int): ByteArray {

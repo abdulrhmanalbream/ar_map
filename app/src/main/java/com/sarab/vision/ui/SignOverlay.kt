@@ -29,11 +29,11 @@ import androidx.compose.ui.unit.sp
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.SignMatch
 
-private val Panel = Color(0xF2101822)
-private val Accent = Color(0xFF4FC3F7)
+private val Panel = Hedayah.Hud.copy(alpha = 0xF2 / 255f)
+private val Accent = Hedayah.HudGold
 private val Good = Color(0xFF66D9AF)
-private val Warn = Color(0xFFFFB300)
-private val Muted = Color(0xFF9FB3C8)
+private val Warn = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
 
 /**
  * Shows what the camera read off the building's name plaque.
@@ -102,7 +102,7 @@ fun SignOverlay(
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "التوجّه إلى هذا المبنى",
-                            color = Color(0xFF0B1520),
+                            color = Hedayah.Hud,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -145,7 +145,7 @@ fun SignOverlay(
                             fontSize = 12.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF1B2836), RoundedCornerShape(11.dp))
+                                .background(Hedayah.HudRaised, RoundedCornerShape(11.dp))
                                 .clickable { onNavigateTo(guess) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                         )

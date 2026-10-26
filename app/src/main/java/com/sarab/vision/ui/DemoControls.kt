@@ -30,11 +30,11 @@ import androidx.compose.ui.unit.sp
 import com.sarab.vision.core.GuidanceMode
 import com.sarab.vision.core.formatDistanceAr
 
-private val Panel = Color(0xE6121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
+private val Panel = Hedayah.Hud.copy(alpha = 0xE6 / 255f)
+private val Accent = Hedayah.HudGold
+private val Amber = Hedayah.HudGold
 private val Good = Color(0xFF66D9AF)
-private val Muted = Color(0xFF9FB3C8)
+private val Muted = Hedayah.HudMuted
 
 /**
  * Controls for trying the whole system away from the campus.
@@ -99,7 +99,7 @@ fun DemoControls(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
-                        .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                        .background(Hedayah.HudRaised, RoundedCornerShape(10.dp))
                         .clickable { expanded = !expanded }
                         .padding(horizontal = 14.dp, vertical = 9.dp)
                 )
@@ -111,7 +111,7 @@ fun DemoControls(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                    .background(Hedayah.HudRaised, RoundedCornerShape(10.dp))
                     .clickable { if (active) onStop() else onStart() }
                     .padding(horizontal = 14.dp, vertical = 9.dp)
             )
@@ -141,7 +141,7 @@ fun DemoControls(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF16202C), RoundedCornerShape(12.dp))
+                .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -185,7 +185,7 @@ fun DemoControls(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF16202C), RoundedCornerShape(12.dp))
+                .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -206,7 +206,7 @@ fun DemoControls(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .background(Color(0xFF243244), RoundedCornerShape(10.dp))
+                    .background(Hedayah.HudRaised, RoundedCornerShape(10.dp))
                     .clickable { onToggleRealHeading() }
                     .padding(horizontal = 14.dp, vertical = 9.dp)
             )
@@ -220,7 +220,7 @@ fun DemoControls(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0x33FFB300), RoundedCornerShape(12.dp))
+                .background(Hedayah.HudGold.copy(alpha = 0x33 / 255f), RoundedCornerShape(12.dp))
                 .clickable(onClick = onPlaceMarkerHere)
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -261,7 +261,7 @@ private fun DemoButton(
         fontWeight = FontWeight.Medium,
         textAlign = TextAlign.Center,
         modifier = modifier
-            .background(Color(0xFF243244), RoundedCornerShape(12.dp))
+            .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 13.dp)
     )

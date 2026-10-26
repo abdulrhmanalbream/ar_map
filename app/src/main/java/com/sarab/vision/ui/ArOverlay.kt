@@ -36,10 +36,10 @@ import com.sarab.vision.core.ScreenPlacement
 import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.markerScaleFor
 
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Panel = Color(0xE6121A24)
-private val Muted = Color(0xFF9FB3C8)
+private val Accent = Hedayah.HudGold
+private val Amber = Hedayah.HudGold
+private val Panel = Hedayah.Hud.copy(alpha = 0xE6 / 255f)
+private val Muted = Hedayah.HudMuted
 
 /**
  * Floating markers for landmarks that are too far away for ARCore.
@@ -81,7 +81,7 @@ fun DistantLandmarkMarkers(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = landmark.name,
-                                color = if (isSelected) Color(0xFF1B2430) else Color.White,
+                                color = if (isSelected) Hedayah.HudRaised else Color.White,
                                 fontSize = (14 * scale).sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -190,7 +190,7 @@ fun AmbiguityPrompt(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
-                    .background(Color(0xFF1B2836), RoundedCornerShape(12.dp))
+                    .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
                     .padding(12.dp)
             ) {
                 Box(
@@ -214,7 +214,7 @@ fun AmbiguityPrompt(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
-                        .background(Color(0x33FFB300), RoundedCornerShape(10.dp))
+                        .background(Hedayah.HudGold.copy(alpha = 0x33 / 255f), RoundedCornerShape(10.dp))
                         .padding(horizontal = 12.dp, vertical = 7.dp)
                 )
             }
@@ -262,7 +262,7 @@ fun GuidanceBar(
             color = Muted,
             fontSize = 13.sp,
             modifier = Modifier
-                .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                .background(Hedayah.HudRaised, RoundedCornerShape(10.dp))
                 .padding(horizontal = 14.dp, vertical = 9.dp)
         )
     }

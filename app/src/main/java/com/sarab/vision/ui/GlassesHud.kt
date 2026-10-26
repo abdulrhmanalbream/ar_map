@@ -35,9 +35,9 @@ import com.sarab.vision.core.HudMenuView
 import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.instructionAr
 
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Muted = Color(0xFF9FB3C8)
+private val Accent = Hedayah.HudGold
+private val Amber = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
 private val Green = Color(0xFF7CE38B)
 
 /**

@@ -3,6 +3,7 @@ package com.sarab.vision.ar
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.os.SystemClock
 import android.util.Log
 import com.google.ar.core.Plane
 import com.google.ar.core.Session
@@ -18,6 +19,7 @@ import com.sarab.vision.render.CameraBackgroundRenderer
 import com.sarab.vision.render.LabelRenderer
 import com.sarab.vision.render.MarkerRenderer
 import com.sarab.vision.render.PathRenderer
+import com.sarab.vision.diagnostics.DiagnosticLog
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -60,7 +62,12 @@ class CampusArRenderer(
     private val markerRenderer = MarkerRenderer()
     private val labelRenderer = LabelRenderer()
 
-    var session: Session? = null
+    @Volatile var session: Session? = null
+    private val cameraBinding = ArCameraRenderBinding()
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
+    private var lastCameraErrorMs = -5_000L
+    private var firstCameraFrame = true
 
     /**
      * Compass bearing to the target, degrees clockwise from true north.
@@ -163,29 +170,50 @@ class CampusArRenderer(
         lastLabelText = null
         lastBuiltBearing = Double.NaN
         lastBuiltHeading = Double.NaN
-        session?.setCameraTextureName(cameraRenderer.textureId)
+        cameraBinding.reset()
+        firstCameraFrame = true
+        DiagnosticLog.record("ArCamera", "gl context created")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
-        session?.setDisplayGeometry(0, width, height)
+        surfaceWidth = width
+        surfaceHeight = height
     }
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
         val session = this.session ?: return
-        session.setCameraTextureName(cameraRenderer.textureId)
+        if (surfaceWidth <= 0 || surfaceHeight <= 0 || cameraRenderer.textureId <= 0) return
 
         val frame = try {
+            if (cameraBinding.apply(session, cameraRenderer.textureId, surfaceWidth, surfaceHeight,
+                    displayRotationDegrees, bindTexture = {
+                        session.setCameraTextureName(cameraRenderer.textureId)
+                        firstCameraFrame = true
+                        DiagnosticLog.record("ArCamera", "texture bound")
+                    }, setGeometry = { geometry ->
+                        session.setDisplayGeometry(geometry.rotation, geometry.width, geometry.height)
+                        DiagnosticLog.record("ArCamera", "geometry rotation=${geometry.rotation} viewport=${geometry.width}x${geometry.height}")
+                    })) cameraRenderer.invalidateUv()
             session.update()
         } catch (e: Exception) {
-            Log.e(TAG, "Session update failed", e)
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastCameraErrorMs >= 5_000) {
+                lastCameraErrorMs = now
+                Log.e(TAG, "Session update failed", e)
+                DiagnosticLog.record("ArCamera", "update failed type=${e.javaClass.simpleName}")
+            }
             return
         }
 
         val camera = frame.camera
         cameraRenderer.draw(frame)
+        if (firstCameraFrame && frame.timestamp != 0L) {
+            firstCameraFrame = false
+            DiagnosticLog.record("ArCamera", "frame ready tracking=${camera.trackingState}")
+        }
 
         // BEFORE the tracking gate, deliberately.
         //

@@ -2,6 +2,7 @@ package com.sarab.vision
 
 import android.Manifest
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -15,12 +16,24 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.Surface
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
+import com.sarab.vision.ui.HedayahTheme
+import com.sarab.vision.ui.Hedayah
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.sarab.vision.ui.VisionCopy
+import com.sarab.vision.ui.VisionLanguagePreference
+import com.sarab.vision.ui.VisionLanguageWelcome
+import com.sarab.vision.ui.VisionCameraAccess
+import com.sarab.vision.ui.decodeVisionPhoto
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -89,6 +102,7 @@ import com.sarab.vision.core.SignMatch
 import com.sarab.vision.core.VoiceState
 import com.sarab.vision.core.advanceHudMenu
 import com.sarab.vision.core.nextVoiceCue
+import com.sarab.vision.core.navigationVoiceEligible
 import com.sarab.vision.core.syncHudMenu
 import com.sarab.vision.core.hudMenuView
 import com.sarab.vision.ui.GlassesHud
@@ -104,6 +118,13 @@ import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
 import com.sarab.vision.ui.BlockingMessage
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import com.sarab.vision.vision.EyeVisionController
+import com.sarab.vision.vision.VisionPose
+import com.sarab.vision.ui.ReligiousCameraHud
+import com.sarab.vision.ritual.RitualCounterStore
+import com.sarab.vision.ritual.ritualWatchState
+import com.sarab.vision.wear.PhoneWearBridge
 import com.sarab.vision.ui.CompassBar
 import com.sarab.vision.ui.DestinationPicker
 import com.sarab.vision.ui.DirectionArrow
@@ -112,6 +133,10 @@ import com.sarab.vision.ui.SignOverlay
 import com.sarab.vision.ui.StartTourButton
 import com.sarab.vision.ui.TourOverlay
 import com.sarab.vision.glasses.camera.EyeCameraController
+import com.sarab.vision.glasses.camera.EyeCameraState
+import com.sarab.vision.phonecamera.PhoneCameraController
+import com.sarab.vision.phonecamera.PhoneCameraPreview
+import com.sarab.vision.phonecamera.PhoneMotionController
 import com.sarab.vision.glasses.motion.GlassesMotionController
 import com.sarab.vision.ui.GlassesCameraScreen
 import com.sarab.vision.diagnostics.DiagnosticLog
@@ -122,7 +147,7 @@ import java.util.EnumSet
 
 private const val TAG = "SarabArNav"
 private const val MIN_CPU_IMAGE_HEIGHT = 720
-private val Muted = Color(0xFF9FB3C8)
+private val Muted = Hedayah.HudMuted
 
 /**
  * The main navigation screen: camera first, path on the ground.
@@ -136,6 +161,16 @@ private val Muted = Color(0xFF9FB3C8)
  * to cross a campus, and GPS cannot draw on the floor.
  */
 class ArNavActivity : ComponentActivity() {
+
+    private lateinit var religiousVision: EyeVisionController
+    private var religiousMode by mutableStateOf(true)
+    private var languageConfirmed by mutableStateOf(false)
+    private lateinit var languagePreference: VisionLanguagePreference
+    private var imagePickerPending by mutableStateOf(false)
+    private var imageImportBusy by mutableStateOf(false)
+    private var imageImportError by mutableStateOf(false)
+    private var photoGeneration = 0
+    private var photoImportJob: kotlinx.coroutines.Job? = null
 
     private val activityInstance = Integer.toHexString(System.identityHashCode(this))
     private var lastEyeRetryMs = -2_000L
@@ -189,6 +224,9 @@ class ArNavActivity : ComponentActivity() {
 
     private var useEyeCamera by mutableStateOf(true)
     private lateinit var eyeCamera: EyeCameraController
+    private lateinit var phoneCamera: PhoneCameraController
+    private lateinit var phoneMotion: PhoneMotionController
+    private var cameraTransition = 0L
     private lateinit var headMotion: GlassesMotionController
     private var northOffset by mutableStateOf<Double?>(null)
     private var horizonPitch by mutableStateOf<Double?>(null)
@@ -204,6 +242,16 @@ class ArNavActivity : ComponentActivity() {
 
     private lateinit var voice: VoiceGuide
     private var voiceState = VoiceState()
+    private var voiceTargetId: String? = null
+    private var navigationMuted by mutableStateOf(false)
+    private val navigationAudioPrefs by lazy { getSharedPreferences("smart_mutawwif_audio", MODE_PRIVATE) }
+    private val navigationMuteListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "muted" || key == null) {
+            navigationMuted = navigationAudioPrefs.getBoolean("muted", false)
+            if (navigationMuted && ::voice.isInitialized) voice.stop()
+            DiagnosticLog.record("NavigationVoice", "mute=$navigationMuted")
+        }
+    }
 
     /** Previous guidance, so menu sync reacts to transitions, not states. */
     private var previousGuidance: GuidanceMode? = null
@@ -263,13 +311,89 @@ class ArNavActivity : ComponentActivity() {
         }
     }
 
+    private val visionPhotoLauncher = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        imagePickerPending = false
+        if (uri == null) {
+            if (resumed) startNavigation()
+        } else {
+            imageImportBusy = true
+            imageImportError = false
+            val generation = photoGeneration
+            photoImportJob = lifecycleScope.launch {
+                try {
+                    val bitmap = decodeVisionPhoto(this@ArNavActivity, uri)
+                    if (generation != photoGeneration) return@launch
+                    if (bitmap == null || !religiousVision.selectImportedImage(bitmap)) imageImportError = true
+                    else {
+                        religiousMode = true
+                        showIgnition = false
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        stopCameraForPhoto()
+                        if (resumed && religiousVision.state.value.enabled &&
+                            com.sarab.vision.platform.PlatformStore.get(this@ArNavActivity).snapshot.enrolled)
+                            religiousVision.analyzeNow()
+                    }
+                } finally {
+                    if (generation == photoGeneration) {
+                        imageImportBusy = false
+                        if (resumed) startNavigation()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun chooseVisionPhoto() {
+        if (!languageConfirmed || imageImportBusy || imagePickerPending) return
+        imageImportError = false
+        photoGeneration++
+        imagePickerPending = true
+        runCatching { visionPhotoLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+            .onFailure { imagePickerPending = false; imageImportError = true }
+    }
+
+    private fun stopCameraForPhoto() {
+        resetNavigationVoice()
+        cameraTransition++
+        phoneCamera.stop(); phoneMotion.stop(); eyeCamera.stop(); headMotion.stop()
+        campus.onUpdate = null
+        campus.stopSensors()
+        campus.enableExternalTracking(false)
+        if (session != null) {
+            surfaceView.onPause(); renderer.session = null
+            session?.pause(); session?.close(); session = null
+        }
+    }
+
+    private fun returnToLiveCamera() {
+        photoGeneration++
+        photoImportJob?.cancel()
+        imageImportBusy = false
+        religiousVision.returnToLive()
+        imageImportError = false
+        requestedOrientation = if (useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        if (resumed) startNavigation()
+    }
+
+    private fun setAppLanguage(language: String) {
+        languagePreference.confirm(language)
+        com.sarab.vision.platform.PlatformStore.get(this).language(language)
+        religiousVision.setLanguage(language)
+        val firstChoice = !languageConfirmed
+        languageConfirmed = true
+        if (firstChoice) {
+            requestedOrientation = if (useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            if (resumed) startNavigation()
+        }
+    }
+
     private fun exportDiagnosticLog() {
         if (exportingLog) return
         DiagnosticLog.record("App", "Export requested; eye=$useEyeCamera display=$glassesConnected " +
             "cameraPermission=$hasCameraPermission locationPermission=$hasLocationPermission " +
             "calibrated=${northOffset != null} demo=${campus.demoActive}")
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        diagnosticExportLauncher.launch("smart-mutawwif-eye-$stamp.txt")
+        diagnosticExportLauncher.launch("smart-mutawwif-camera-$stamp.txt")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -278,16 +402,30 @@ class ArNavActivity : ComponentActivity() {
 
         campus = CampusApp.state(this)
         val preferences = getPreferences(MODE_PRIVATE)
-        useEyeCamera = preferences.getBoolean("use_eye_camera", true)
+        languagePreference = VisionLanguagePreference(this)
+        languageConfirmed = languagePreference.confirmed
+        if (!languageConfirmed) showIgnition = false
+        // The legacy phone preference selected AR navigation, not this companion.
+        // New installs and upgrades start on Eye until the user picks the phone here.
+        useEyeCamera = preferences.getString("religious_camera_source", "eye") != "phone"
         logLifecycle("created restored=${savedInstanceState != null}")
-        requestedOrientation = if (useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        requestedOrientation = if (languageConfirmed && useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         applyCameraWindow()
         horizontalFov = preferences.getFloat("eye_horizontal_fov", 70f).coerceIn(40f, 110f)
         eyeCamera = EyeCameraController(this)
+        phoneCamera = PhoneCameraController(this)
+        phoneMotion = PhoneMotionController(this)
         headMotion = GlassesMotionController(this)
+        religiousVision = EyeVisionController(this, lifecycleScope)
+        if (languageConfirmed) {
+            religiousVision.setLanguage(languagePreference.language)
+            com.sarab.vision.platform.PlatformStore.get(this).language(languagePreference.language)
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         voice = VoiceGuide(this)
+        navigationMuted = navigationAudioPrefs.getBoolean("muted", false)
+        navigationAudioPrefs.registerOnSharedPreferenceChangeListener(navigationMuteListener)
         glasses = GlassesDisplayController(
             this, campus,
             menu = { hudMenu },
@@ -298,7 +436,10 @@ class ArNavActivity : ComponentActivity() {
                 // Media buttons are only claimed while the wearer depends on
                 // them; otherwise this would silently break music controls.
                 mediaSession?.isActive = connected
-                if (!connected) hudMenu = HudMenuState.Closed
+                if (!connected) {
+                    hudMenu = HudMenuState.Closed
+                    if (useEyeCamera) voice.stop()
+                }
             }
         )
         glasses.setMirror(true)
@@ -331,10 +472,11 @@ class ArNavActivity : ComponentActivity() {
             setEGLConfigChooser(8, 8, 8, 0, 16, 0)
             setRenderer(renderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateNavigationDisplayRotation() }
         }
 
         renderer.signReader = signReader
-        renderer.displayRotationDegrees = 0
+        updateNavigationDisplayRotation()
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -361,7 +503,7 @@ class ArNavActivity : ComponentActivity() {
                 // phone screen happens to show.
                 hudMenu !is HudMenuState.Closed -> hudMenu = HudMenuState.Closed
                 pickerVisible -> pickerVisible = false
-                !useEyeCamera && calibration.step != CalibrationStep.DONE ->
+                !useEyeCamera && !religiousMode && calibration.step != CalibrationStep.DONE ->
                     calibration = CalibrationState(CalibrationStep.DONE, 1f, "", "")
                 campus.target != null -> {
                     // Clear the destination rather than quitting: the user is
@@ -374,15 +516,17 @@ class ArNavActivity : ComponentActivity() {
         }
 
         setContent {
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1B2A))) {
+            val visionState by religiousVision.state.collectAsState()
+            val copy = VisionCopy(visionState.language, !useEyeCamera, visionState.isImportedImage)
+            HedayahTheme(camera = true) {
+            CompositionLocalProvider(LocalLayoutDirection provides if (visionState.language in setOf("ar", "ur")) LayoutDirection.Rtl else LayoutDirection.Ltr) {
+                Box(modifier = Modifier.fillMaxSize().background(Hedayah.Hud)) {
                     when {
-                        !hasCameraPermission -> BlockingMessage(
-                            title = "نحتاج إذن الكاميرا",
-                            body = "يعرض التطبيق المسار على الأرض من خلال الكاميرا. " +
-                                "لا تغادر أي صورة جهازك.",
-                            actionLabel = if (cameraPermissionBlocked) "فتح إعدادات التطبيق" else "السماح",
-                            onAction = {
+                        !languageConfirmed -> VisionLanguageWelcome(visionState.language, ::setAppLanguage)
+                        visionState.isImportedImage -> GlassesContent()
+                        !hasCameraPermission -> VisionCameraAccess(copy, cameraPermissionBlocked,
+                            imageImportBusy || imagePickerPending, if (imageImportError) copy.imageError else null,
+                            onCamera = {
                                 if (cameraPermissionBlocked) {
                                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                         android.net.Uri.parse("package:$packageName")))
@@ -390,50 +534,94 @@ class ArNavActivity : ComponentActivity() {
                                     cameraPermissionRequested = true
                                     cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                 }
-                            }
+                            }, onImage = ::chooseVisionPhoto
                         )
 
-                        useEyeCamera -> GlassesContent()
+                        useEyeCamera || religiousMode -> GlassesContent()
 
                         unsupportedReason != null -> BlockingMessage(
                             title = "AR غير مدعوم",
                             body = unsupportedReason!!,
-                            actionLabel = "استخدام كاميرا النظارة",
-                            onAction = { selectCamera(true) }
+                            actionLabel = "العودة للمرافق بكاميرا الجوال",
+                            onAction = { selectReligiousMode(true) }
                         )
 
                         else -> ArNavContent()
                     }
 
-                    if ((!useEyeCamera || !hasCameraPermission) && !showIgnition) {
+                    if (languageConfirmed && ((!useEyeCamera && !religiousMode) || (!hasCameraPermission && !visionState.isImportedImage)) && !showIgnition) {
                         TextButton(onClick = { exportDiagnosticLog() }, enabled = !exportingLog,
                             modifier = Modifier.align(Alignment.TopEnd)
                                 .windowInsetsPadding(WindowInsets.statusBars)) {
-                            Text("حفظ سجل التشخيص", color = Color(0xFF4FC3F7))
+                            Text("حفظ سجل التشخيص", color = Hedayah.HudGold)
                         }
                     }
-                    if (showIgnition) {
+                    if (languageConfirmed && showIgnition && !visionState.isImportedImage) {
                         IgnitionSplash(onFinished = { showIgnition = false })
                     }
                 }
+            }
             }
         }
     }
 
     @androidx.compose.runtime.Composable
     private fun GlassesContent() {
-        val cameraState by eyeCamera.state.collectAsState()
-        val frame by eyeCamera.frame.collectAsState()
+        val eyeState by eyeCamera.state.collectAsState()
+        val eyeFrame by eyeCamera.frame.collectAsState()
+        val phoneState by phoneCamera.state.collectAsState()
+        val phoneFrame by phoneCamera.frame.collectAsState()
+        val phonePose by phoneMotion.pose.collectAsState()
+        val cameraState = if (useEyeCamera) eyeState else EyeCameraState(
+            status = phoneState.status, streaming = phoneState.streaming, connected = phoneState.streaming,
+        )
+        val frame = if (useEyeCamera) eyeFrame else phoneFrame
         val motion by headMotion.state.collectAsState()
+        val visionState by religiousVision.state.collectAsState()
+        val counterStore = RitualCounterStore.get(this)
+        val counterState by counterStore.state.collectAsState()
+        val watchState by PhoneWearBridge.get(this).state.collectAsState()
+        val platformState by com.sarab.vision.platform.PlatformStore.get(this).state.collectAsState()
+        val cameraPose = if (!useEyeCamera) phonePose else if (motion.tracking) {
+            motion.yawDegrees?.let { yaw -> motion.pitchDegrees?.let { pitch -> VisionPose(yaw, pitch, motion.sessionId, motion.rollDegrees ?: 0.0) } }
+        } else null
+        DisposableEffect(religiousMode, useEyeCamera) {
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
+                religiousVision.setForeground(religiousMode && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            }
+            lifecycle.addObserver(observer)
+            religiousVision.setForeground(religiousMode && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            onDispose { lifecycle.removeObserver(observer); religiousVision.setForeground(false) }
+        }
+        LaunchedEffect(frame, cameraState.streaming, useEyeCamera, visionState.isImportedImage) {
+            if (visionState.isImportedImage) return@LaunchedEffect
+            religiousVision.setCameraAvailable(cameraState.streaming && frame != null)
+            frame?.let { religiousVision.onFrame(it, cameraPose) }
+        }
+        LaunchedEffect(cameraPose, visionState.isImportedImage) { if (!visionState.isImportedImage) religiousVision.onPose(cameraPose) }
         androidx.compose.runtime.SideEffect {
             com.sarab.vision.platform.PlatformStore.get(this).apply {
-                cameraConnected = cameraState.streaming
-                imuTracking = motion.tracking
+                // These existing telemetry fields describe Eye and glasses IMU only.
+                cameraConnected = !visionState.isImportedImage && useEyeCamera && resumed && eyeState.streaming
+                imuTracking = !visionState.isImportedImage && useEyeCamera && resumed && motion.tracking
                 destinationName = campus.target?.name
             }
         }
         Box(Modifier.fillMaxSize()) {
-            GlassesCameraScreen(
+            val importedPhoto = visionState.importedImage
+            if (importedPhoto != null) {
+                Image(importedPhoto.asImageBitmap(), VisionCopy(visionState.language).importedSource,
+                    modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                ReligiousCameraHud(religiousVision, visionState, platformState.enrolled, cameraLive = false,
+                    counterStore = counterStore, counterState = counterState, watch = ritualWatchState(watchState),
+                    onConnect = { startActivity(Intent(this@ArNavActivity, com.sarab.vision.platform.CompanionActivity::class.java)
+                        .putExtra("return_to_vision", !platformState.enrolled)) },
+                    onNavigation = { selectReligiousMode(false) }, onCameraSettings = ::returnToLiveCamera,
+                    phoneCamera = !useEyeCamera, motionAvailable = false,
+                    onChooseImage = ::chooseVisionPhoto, onReturnToCamera = ::returnToLiveCamera,
+                    onLanguageChange = ::setAppLanguage, imageBusy = imageImportBusy || imagePickerPending,
+                    imageError = if (imageImportError) VisionCopy(visionState.language).imageError else null)
+            } else GlassesCameraScreen(
                 campus = campus,
                 cameraState = cameraState,
                 frame = frame,
@@ -453,15 +641,30 @@ class ArNavActivity : ComponentActivity() {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastEyeRetryMs >= 2_000) {
                         lastEyeRetryMs = now
-                        DiagnosticLog.record("App", "activity=$activityInstance manual Eye + IMU reconnect")
-                        clearHeadAlignment()
-                        eyeCamera.stop()
-                        headMotion.stop()
-                        eyeCamera.start()
-                        headMotion.start()
+                        religiousVision.setCameraAvailable(false)
+                        if (useEyeCamera) {
+                            DiagnosticLog.record("App", "activity=$activityInstance manual Eye + IMU reconnect")
+                            clearHeadAlignment()
+                            eyeCamera.stop()
+                            headMotion.stop()
+                            eyeCamera.start()
+                            headMotion.start()
+                        } else {
+                            DiagnosticLog.record("App", "activity=$activityInstance manual phone camera reconnect")
+                            phoneCamera.stop()
+                            phoneMotion.stop()
+                            if (resumed) { phoneMotion.start(); phoneCamera.start() }
+                        }
                     }
                 },
                 onPhoneCamera = { selectCamera(false) },
+                phoneCamera = !useEyeCamera,
+                cameraPreview = if (!useEyeCamera) ({ PhoneCameraPreview(phoneCamera, Modifier.fillMaxSize()) }) else null,
+                onChooseImage = ::chooseVisionPhoto,
+                imageActionLabel = VisionCopy(visionState.language).chooseImage,
+                imageBusy = imageImportBusy || imagePickerPending,
+                imageError = if (imageImportError) VisionCopy(visionState.language).imageError else null,
+                onEyeCamera = { selectCamera(true) },
                 onPickDestination = { pickerVisible = true },
                 onExportLog = { exportDiagnosticLog() },
                 exportingLog = exportingLog,
@@ -482,7 +685,23 @@ class ArNavActivity : ComponentActivity() {
                             Manifest.permission.ACCESS_COARSE_LOCATION
                         ))
                     }
-                }
+                },
+                onReligiousHome = { selectReligiousMode(true) },
+                religiousHud = if (religiousMode) { openSettings ->
+                    ReligiousCameraHud(
+                        controller = religiousVision, state = visionState, enrolled = platformState.enrolled,
+                        cameraLive = cameraState.streaming && frame != null,
+                        counterStore = counterStore, counterState = counterState, watch = ritualWatchState(watchState),
+                        onConnect = { startActivity(Intent(this@ArNavActivity, com.sarab.vision.platform.CompanionActivity::class.java)
+                            .putExtra("return_to_vision", !platformState.enrolled)) },
+                        onNavigation = { selectReligiousMode(false) }, onCameraSettings = openSettings,
+                        phoneCamera = !useEyeCamera,
+                        motionAvailable = cameraPose != null,
+                        onChooseImage = ::chooseVisionPhoto, onReturnToCamera = ::returnToLiveCamera,
+                        onLanguageChange = ::setAppLanguage, imageBusy = imageImportBusy || imagePickerPending,
+                        imageError = if (imageImportError) VisionCopy(visionState.language).imageError else null,
+                    )
+                } else null,
             )
             DestinationPicker(
                 landmarks = campus.landmarks,
@@ -560,27 +779,61 @@ class ArNavActivity : ComponentActivity() {
     }
 
     private fun selectCamera(eye: Boolean) {
-        if (useEyeCamera == eye) return
+        resetNavigationVoice()
+        if (religiousVision.state.value.isImportedImage) religiousVision.returnToLive()
+        if (useEyeCamera == eye) {
+            selectReligiousMode(true)
+            return
+        }
+        // A source change clears the old scene and requires consent for the new camera.
+        religiousVision.setEnabled(false)
+        religiousVision.setCameraAvailable(false)
         useEyeCamera = eye
-        DiagnosticLog.record("App", "Camera source selected: ${if (eye) "Eye + glasses IMU" else "phone ARCore"}")
+        religiousMode = true
+        DiagnosticLog.record("App", "Camera source selected: ${if (eye) "Eye + glasses IMU" else "phone companion"}")
         requestedOrientation = if (eye) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         applyCameraWindow()
-        getPreferences(MODE_PRIVATE).edit().putBoolean("use_eye_camera", eye).apply()
+        getPreferences(MODE_PRIVATE).edit()
+            .putString("religious_camera_source", if (eye) "eye" else "phone").apply()
         unsupportedReason = null
         clearHeadAlignment()
         if (resumed) startNavigation()
     }
 
+    private fun selectReligiousMode(enabled: Boolean) {
+        if (!enabled && religiousVision.state.value.isImportedImage) religiousVision.returnToLive()
+        if (religiousMode == enabled) return
+        resetNavigationVoice()
+        religiousVision.setForeground(false)
+        religiousVision.setCameraAvailable(false)
+        religiousMode = enabled
+        unsupportedReason = null
+        applyCameraWindow()
+        if (resumed) startNavigation()
+    }
+
     private fun startNavigation() {
-        if (!hasCameraPermission || !resumed) return
+        if (!languageConfirmed || !resumed || imagePickerPending || imageImportBusy) return
+        if (religiousVision.state.value.isImportedImage) {
+            stopCameraForPhoto()
+            glassesMirror = true
+            glasses.setMirror(true)
+            glasses.start()
+            return
+        }
+        if (!hasCameraPermission) return
+        val transition = ++cameraTransition
+        DiagnosticLog.record("NavigationCamera", "mode source=${if (useEyeCamera) "eye" else "phone"} recognition=$religiousMode mute=$navigationMuted")
         campus.enableExternalTracking(useEyeCamera)
         campus.startSensors()
         campus.onUpdate = { syncRenderer(); onGuidanceTick() }
+        syncRenderer()
+        onGuidanceTick()
         glassesMirror = true
         glasses.setMirror(true)
         glasses.start()
-        if (useEyeCamera) {
+        if (useEyeCamera || religiousMode) {
             // ARCore's camera pose and floor belong to the phone. Feeding Eye
             // images into that session would put arrows in the wrong frame.
             if (session != null) {
@@ -592,14 +845,29 @@ class ArNavActivity : ComponentActivity() {
             }
             signReader.reset()
             signMatch = null
-            eyeCamera.start()
-            headMotion.start()
-            refreshHeadHeading()
+            if (useEyeCamera) {
+                phoneCamera.stop()
+                phoneMotion.stop()
+                eyeCamera.start()
+                headMotion.start()
+                refreshHeadHeading()
+            } else {
+                eyeCamera.stop()
+                headMotion.stop()
+                phoneMotion.start()
+                phoneCamera.start()
+            }
         } else {
             eyeCamera.stop()
             headMotion.stop()
-            syncRenderer()
-            ensureSessionAndResume()
+            phoneMotion.stop()
+            // ARCore may claim the same back camera only after Camera2 releases it.
+            phoneCamera.stop {
+                if (transition == cameraTransition && resumed && !useEyeCamera && !religiousMode) {
+                    syncRenderer()
+                    ensureSessionAndResume()
+                }
+            }
         }
     }
 
@@ -708,22 +976,25 @@ class ArNavActivity : ComponentActivity() {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp)
                 ) {
+                    TextButton(onClick = { selectReligiousMode(true) }) {
+                        Text("المرافق الديني", color = Hedayah.HudGold, fontSize = 13.sp)
+                    }
                     Text(
                         "كاميرا النظارة",
-                        color = Color(0xFF4FC3F7),
+                        color = Hedayah.HudGold,
                         fontSize = 13.sp,
                         modifier = Modifier
-                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .background(Hedayah.HudPanel, RoundedCornerShape(10.dp))
                             .clickable { selectCamera(true) }
                             .padding(horizontal = 12.dp, vertical = 12.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "رجوع",
-                        color = Color(0xFF4FC3F7),
+                        color = Hedayah.HudGold,
                         fontSize = 13.sp,
                         modifier = Modifier
-                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .background(Hedayah.HudPanel, RoundedCornerShape(10.dp))
                             .clickable { finish() }
                             .padding(horizontal = 14.dp, vertical = 8.dp)
                     )
@@ -733,7 +1004,7 @@ class ArNavActivity : ComponentActivity() {
                         color = Muted,
                         fontSize = 11.sp,
                         modifier = Modifier
-                            .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                            .background(Hedayah.HudPanel, RoundedCornerShape(10.dp))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     )
 
@@ -747,10 +1018,10 @@ class ArNavActivity : ComponentActivity() {
                         Text(
                             text = if (glassesMirror) "النظارة: شاشة كاملة"
                             else "النظارة: مؤشرات",
-                            color = Color(0xFFFFB300),
+                            color = Hedayah.HudGold,
                             fontSize = 11.sp,
                             modifier = Modifier
-                                .background(Color(0xCC16202C), RoundedCornerShape(10.dp))
+                                .background(Hedayah.HudPanel, RoundedCornerShape(10.dp))
                                 .clickable {
                                     glassesMirror = !glassesMirror
                                     glasses.setMirror(glassesMirror)
@@ -821,7 +1092,7 @@ class ArNavActivity : ComponentActivity() {
                         // gesture bar, which otherwise swallows its buttons.
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(14.dp)
-                        .background(Color(0xE6121A24), RoundedCornerShape(18.dp))
+                        .background(Hedayah.HudPanel, RoundedCornerShape(18.dp))
                         .padding(16.dp)
                 ) {
                     if (target == null) {
@@ -849,7 +1120,7 @@ class ArNavActivity : ComponentActivity() {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             instructionAr(guidance, target.name),
-                            color = Color(0xFF4FC3F7),
+                            color = Hedayah.HudGold,
                             fontSize = 14.sp
                         )
                     }
@@ -866,6 +1137,15 @@ class ArNavActivity : ComponentActivity() {
                             )
                         }
                     }
+                    if (target != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ActionChip(if (navigationMuted) "تشغيل صوت التوجيه" else "كتم التوجيه", Modifier.weight(1f)) {
+                                navigationAudioPrefs.edit().putBoolean("muted", !navigationMuted).apply()
+                            }
+                            ActionChip("إعادة التوجيه", Modifier.weight(1f)) { repeatNavigationInstruction() }
+                        }
+                    }
                 }
             }
             }
@@ -880,7 +1160,7 @@ class ArNavActivity : ComponentActivity() {
             fontSize = 13.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = modifier
-                .background(Color(0xFF243244), RoundedCornerShape(12.dp))
+                .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
                 .clickable(onClick = onClick)
                 .padding(vertical = 12.dp)
         )
@@ -1005,7 +1285,8 @@ class ArNavActivity : ComponentActivity() {
     }
 
     private fun ensureSessionAndResume() {
-        if (!hasCameraPermission || useEyeCamera) return
+        if (!hasCameraPermission || useEyeCamera || religiousMode || !resumed) return
+        updateNavigationDisplayRotation()
 
         if (session == null) {
             try {
@@ -1036,6 +1317,7 @@ class ArNavActivity : ComponentActivity() {
                     chosen?.let {
                         newSession.cameraConfig = it
                         Log.i(TAG, "Camera config ${it.imageSize.width}x${it.imageSize.height}")
+                        DiagnosticLog.record("NavigationCamera", "config cpu=${it.imageSize.width}x${it.imageSize.height} gpu=${it.textureSize.width}x${it.textureSize.height}")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not select camera config", e)
@@ -1047,16 +1329,20 @@ class ArNavActivity : ComponentActivity() {
                         updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
                         lightEstimationMode = Config.LightEstimationMode.DISABLED
                         depthMode = Config.DepthMode.DISABLED
+                        focusMode = Config.FocusMode.AUTO
                     }
                 )
                 session = newSession
                 renderer.session = newSession
                 renderer.reset()
+                DiagnosticLog.record("NavigationCamera", "session created focus=auto")
             } catch (e: UnavailableException) {
+                DiagnosticLog.record("NavigationCamera", "session unavailable type=${e.javaClass.simpleName}")
                 unsupportedReason = "هذا الجهاز لا يدعم ARCore."
                 return
             } catch (e: Exception) {
                 Log.e(TAG, "Session creation failed", e)
+                DiagnosticLog.record("NavigationCamera", "session creation failed type=${e.javaClass.simpleName}")
                 unsupportedReason = "تعذّر تشغيل AR: ${e.message}"
                 return
             }
@@ -1064,13 +1350,17 @@ class ArNavActivity : ComponentActivity() {
 
         try {
             session?.resume()
+            DiagnosticLog.record("NavigationCamera", "session resumed displayDegrees=${renderer.displayRotationDegrees}")
         } catch (e: CameraNotAvailableException) {
+            session?.close()
             session = null
             renderer.session = null
             unsupportedReason = "الكاميرا غير متاحة. أغلق التطبيقات الأخرى وأعد المحاولة."
+            DiagnosticLog.record("NavigationCamera", "resume failed code=CAMERA_UNAVAILABLE")
             return
         } catch (e: Exception) {
             Log.e(TAG, "Session resume failed", e)
+            DiagnosticLog.record("NavigationCamera", "resume failed type=${e.javaClass.simpleName}")
             session?.close()
             session = null
             renderer.session = null
@@ -1102,18 +1392,16 @@ class ArNavActivity : ComponentActivity() {
         when (val action = result.action) {
             is HudMenuAction.Select -> {
                 campus.selectTarget(action.landmark)
-                voice.speak("التوجه إلى ${action.landmark.name}")
             }
-            HudMenuAction.RepeatInstruction -> campus.target?.let {
-                voice.speak(instructionAr(campus.guidance, it.name))
-            }
+            HudMenuAction.RepeatInstruction -> repeatNavigationInstruction()
             HudMenuAction.None -> Unit
         }
 
         // Speak the highlighted name as the wearer cycles: with the phone
         // lowered, the ears confirm what the glasses show.
         val after = selectedMenuName()
-        if (after != null && after != before) voice.speak(after)
+        if (after != null && after != before && navigationVoiceEligible(resumed, religiousMode,
+                true, useEyeCamera, glasses.connected, navigationMuted)) voice.speakName(after)
     }
 
     private fun selectedMenuName(): String? = when (val m = hudMenu) {
@@ -1126,25 +1414,55 @@ class ArNavActivity : ComponentActivity() {
     /** Runs on every sensor update: menu sync and voice, from pure policy. */
     private fun onGuidanceTick() {
         val guidance = campus.guidance
+        val target = campus.target
+        if (target?.id != voiceTargetId) {
+            resetNavigationVoice()
+            voiceTargetId = target?.id
+        }
         hudMenu = syncHudMenu(
             hudMenu, previousGuidance, guidance,
             campus.landmarks.toList(), campus.target, campus.fix?.position
         )
 
-        // Voice only speaks while glasses are up: it exists so the wearer
-        // can keep their eyes on the path, and unprompted speech in the
-        // phone-only flow would be a surprise nobody asked for. Keyed on
-        // connected, not hudShown, so mirror mode keeps its voice.
-        if (glasses.connected) {
-            val cue = campus.target?.let { voiceCueAr(guidance, it.name) }
+        val eligible = navigationVoiceEligible(resumed, religiousMode, target != null,
+            useEyeCamera, glasses.connected, navigationMuted)
+        if (eligible) {
+            val cue = target?.let { voiceCueAr(guidance, it.name) }
             val urgent = guidance is GuidanceMode.Arrived ||
                 guidance is GuidanceMode.Ambiguous
             val (next, toSpeak) =
-                nextVoiceCue(voiceState, cue, urgent, System.currentTimeMillis())
+                nextVoiceCue(voiceState, cue, urgent, System.currentTimeMillis(), playbackBusy = voice.isSpeaking)
             voiceState = next
-            toSpeak?.let { voice.speak(it) }
+            if (toSpeak != null && target != null) {
+                DiagnosticLog.record("NavigationVoice", "automatic source=${if (useEyeCamera) "eye" else "phone"} urgent=$urgent")
+                voice.speakGuidance(guidance, target.name)
+            }
         }
         previousGuidance = guidance
+    }
+
+    private fun resetNavigationVoice() {
+        if (::voice.isInitialized) voice.stop()
+        voiceState = VoiceState()
+        voiceTargetId = null
+    }
+
+    private fun repeatNavigationInstruction() {
+        val target = campus.target ?: return
+        if (!navigationVoiceEligible(resumed, religiousMode, true, useEyeCamera, glasses.connected, navigationMuted)) return
+        voiceState = VoiceState(voiceCueAr(campus.guidance, target.name), System.currentTimeMillis())
+        voice.speakGuidance(campus.guidance, target.name, manualRepeat = true)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateNavigationDisplayRotation() {
+        if (!::renderer.isInitialized || !::surfaceView.isInitialized) return
+        renderer.displayRotationDegrees = when ((surfaceView.display ?: windowManager.defaultDisplay).rotation) {
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> 0
+        }
     }
 
     /**
@@ -1255,20 +1573,17 @@ class ArNavActivity : ComponentActivity() {
             this, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (!hasCameraPermission) {
-            if (!cameraPermissionRequested) {
-                cameraPermissionRequested = true
-                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
-            return
-        }
-
         startNavigation()
     }
 
     override fun onPause() {
         logLifecycle("paused")
         resumed = false
+        resetNavigationVoice()
+        cameraTransition++
+        if (::religiousVision.isInitialized) religiousVision.setForeground(false)
+        phoneCamera.stop()
+        phoneMotion.stop()
         super.onPause()
         glasses.stop()
         campus.onUpdate = null
@@ -1288,6 +1603,7 @@ class ArNavActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        if (::religiousVision.isInitialized) religiousVision.onStopped()
         com.sarab.vision.platform.PlatformStore.get(this).apply { cameraConnected = false; imuTracking = false }
         logLifecycle("stopped changingConfigurations=$isChangingConfigurations finishing=$isFinishing")
         // USB permission dialogs can pause the Activity; stopping onStop
@@ -1300,9 +1616,13 @@ class ArNavActivity : ComponentActivity() {
 
     override fun onDestroy() {
         logLifecycle("destroyed changingConfigurations=$isChangingConfigurations finishing=$isFinishing")
+        if (::religiousVision.isInitialized) religiousVision.close()
+        phoneCamera.close()
+        phoneMotion.close()
         eyeCamera.stop()
         headMotion.stop()
         voice.shutdown()
+        navigationAudioPrefs.unregisterOnSharedPreferenceChangeListener(navigationMuteListener)
         mediaSession?.release()
         mediaSession = null
         signReader.close()
@@ -1316,6 +1636,7 @@ class ArNavActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         logLifecycle("configuration changed")
+        updateNavigationDisplayRotation()
         applyCameraWindow()
     }
 
@@ -1325,24 +1646,25 @@ class ArNavActivity : ComponentActivity() {
     }
 
     private fun applyCameraWindow() {
-        WindowCompat.setDecorFitsSystemWindows(window, !useEyeCamera)
+        val fullScreenCamera = useEyeCamera || religiousMode
+        WindowCompat.setDecorFitsSystemWindows(window, !fullScreenCamera)
         if (Build.VERSION.SDK_INT >= 28) {
             window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode = if (useEyeCamera)
+                layoutInDisplayCutoutMode = if (fullScreenCamera)
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
             }
         }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (useEyeCamera) hide(WindowInsetsCompat.Type.systemBars())
+            if (fullScreenCamera) hide(WindowInsetsCompat.Type.systemBars())
             else show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
     private fun logLifecycle(event: String) {
         val config = resources.configuration
-        DiagnosticLog.record("App", "activity=$activityInstance $event eye=$useEyeCamera " +
+        DiagnosticLog.record("App", "activity=$activityInstance $event eye=$useEyeCamera companion=$religiousMode " +
             "orientation=${config.orientation} screenDp=${config.screenWidthDp}x${config.screenHeightDp} " +
             "density=${config.densityDpi} keyboard=${config.keyboard} navigation=${config.navigation}")
     }

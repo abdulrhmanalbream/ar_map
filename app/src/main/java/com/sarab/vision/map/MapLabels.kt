@@ -64,12 +64,12 @@ object MapLabels {
         val canvas = Canvas(bitmap)
 
         val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (highlight) 0xFF1573B8.toInt() else 0xE6101822.toInt()
+            color = if (highlight) 0xFF133F35.toInt() else 0xE6102C25.toInt()
         }
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = 1.5f * density
-            color = if (highlight) 0xFF7FD4FF.toInt() else 0x66FFFFFF
+            color = if (highlight) 0xFFB49A5B.toInt() else 0x66FFFFFF
         }
 
         val rect = RectF(

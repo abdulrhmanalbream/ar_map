@@ -1,5 +1,11 @@
 # Sarab companion 3.0 verification — 2026-09-08
 
+**Historical scope:** the checks and artifacts below cover releases 3.0–3.0.2. Release 3.1 adds an opt-in religious image companion and a separate manual phone counter; see [the 3.1 user guide](RELIGIOUS_COMPANION_AR.md). Statements below about Eye images staying local describe the older text-only assistant. In 3.1, explicitly enabled single snapshots and selected-image questions pass through this project's server to Gemini; continuous video is not uploaded. Images remain in memory in our app/server implementation, while Google's service terms may apply. This notice does not assert new test results or physical Fold7/Eye/Watch8 verification.
+
+## 3.0.2 Hedayathon interface update
+
+The phone, watch and deployed dashboard now use the supplied Hedayathon identity and original logo. Build code8 retains the package/signature and functional contracts. The final Android build,342+15JVM tests, lint,10web tests,39local viewport/surface checks and authenticated live Chrome verification passed. Compact layouts were corrected after emulator/screenshot review. Static-only web deployment preserved all16containerIDs and host nginx configuration/master uptime. See [Hedayathon UI validation](HEDAYAH_UI_VALIDATION.md) for artifacts, evidence, rollback and physical-device limits. The following sections record earlier functional verification.
+
 ## 3.0.1 visible product rename
 
 Product branding is now **المطوف الذكي / Smart Mutawwif**. Both APKs have the Arabic launcher label, version code 7, unchanged package ID/signing certificate, and preserve existing application data and Wear Data Layer identifiers. `build.ps1 -Test` passed phone/watch builds, existing JVM tests and lint. Phone permission dialog and companion header were visually verified on the isolated emulator. The longer web brand passed 14 local desktop/mobile viewport checks and live authenticated Chrome checks without overflow, browser errors or CSP errors; 10 web tests and 8 assistant tests passed.
@@ -70,6 +76,6 @@ Both APK signatures verified and use the same signing certificate, application I
 
 Lap counting in this version is manual, with persistence, undo and reset confirmation. It does not automatically infer a completed Tawaf/Sa'i lap. Actual Watch 8 Classic pairing, background delivery and vibration remain to be checked with the user's devices, including notification permission and Do Not Disturb settings.
 
-The bundled route catalog is the project's existing surveyed catalog. Haram routes and meeting points require their own approved map data and field testing. Eye video is processed locally and not uploaded to the assistant.
+The bundled route catalog is the project's existing surveyed catalog. Haram routes and meeting points require their own approved map data and field testing. In the historical 3.0 text-only assistant tested here, Eye video was processed locally and no Eye images were uploaded to that assistant. Release 3.1 introduces the separately consented snapshot behavior described at the start of this document.
 
 Automatic approval review rejected deletion of a throwaway local UI-test folder, `C:/Users/TechTroniX/AppData/Local/Temp/sarab-ui-test-Nhgzxl`, as blocked by policy. The test server was stopped and the directory was left intact; it contains dummy test data, not the production Gemini configuration. Production QA records were cleaned separately with the guarded script described above.

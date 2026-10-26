@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,10 +48,10 @@ import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.matchesQuery
 import com.sarab.vision.core.rankByDistance
 
-private val Sheet = Color(0xF5121A24)
-private val Row1 = Color(0xFF1B2634)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val Sheet = Hedayah.Paper
+private val Row1 = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Muted = Hedayah.Muted
 
 /**
  * Destination sheet that slides over the camera.
@@ -61,7 +62,7 @@ private val Muted = Color(0xFF9FB3C8)
  * camera stays visible behind it.
  */
 @Composable
-fun DestinationPicker(
+private fun DestinationPickerContent(
     landmarks: List<Landmark>,
     userFix: GpsFix?,
     visible: Boolean,
@@ -88,7 +89,8 @@ fun DestinationPicker(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0x99000000))
-                .clickable(onClick = onDismiss)
+                .heightIn(min = 48.dp)
+                    .clickable(onClick = onDismiss)
         )
     }
 
@@ -119,7 +121,7 @@ fun DestinationPicker(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "إلى أين تريد الذهاب؟",
-                            color = Color.White,
+                            color = Hedayah.Ink,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -136,7 +138,8 @@ fun DestinationPicker(
                         fontSize = 13.sp,
                         modifier = Modifier
                             .background(Row1, RoundedCornerShape(10.dp))
-                            .clickable(onClick = onOpenTools)
+                            .heightIn(min = 48.dp)
+                    .clickable(onClick = onOpenTools)
                             .padding(horizontal = 14.dp, vertical = 9.dp)
                     )
                 }
@@ -151,10 +154,10 @@ fun DestinationPicker(
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Row1,
                         unfocusedContainerColor = Row1,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
+                        focusedTextColor = Hedayah.Ink,
+                        unfocusedTextColor = Hedayah.Ink,
                         focusedIndicatorColor = Accent,
-                        unfocusedIndicatorColor = Color(0xFF243244),
+                        unfocusedIndicatorColor = Hedayah.Soft,
                         cursorColor = Accent
                     ),
                     shape = RoundedCornerShape(14.dp),
@@ -216,7 +219,8 @@ private fun DestinationRow(fix: LandmarkFix, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .background(Row1, RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(14.dp)
     ) {
         Box(
@@ -229,7 +233,7 @@ private fun DestinationRow(fix: LandmarkFix, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(lm.name, color = Color.White, fontSize = 16.sp)
+            Text(lm.name, color = Hedayah.Ink, fontSize = 16.sp)
             Text(lm.category.labelAr, color = Muted, fontSize = 12.sp)
         }
         if (!fix.distanceMeters.isNaN()) {
@@ -247,12 +251,21 @@ private fun DestinationRow(fix: LandmarkFix, onClick: () -> Unit) {
 private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
     Text(
         text = label,
-        color = if (selected) Color(0xFF0B1520) else Muted,
+        color = if (selected) Hedayah.Paper else Muted,
         fontSize = 13.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         modifier = Modifier
             .background(if (selected) Accent else Row1, RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 9.dp)
     )
+}
+
+@Composable
+fun DestinationPicker(
+    landmarks: List<Landmark>, userFix: GpsFix?, visible: Boolean,
+    onSelect: (Landmark) -> Unit, onDismiss: () -> Unit, onOpenTools: () -> Unit
+) {
+    HedayahTheme { DestinationPickerContent(landmarks, userFix, visible, onSelect, onDismiss, onOpenTools) }
 }

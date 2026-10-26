@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -42,9 +43,9 @@ import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.map.CampusMapView
 import com.sarab.vision.map.MapStyles
 
-private val Panel = Color(0xE6121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Muted = Hedayah.Muted
 
 /**
  * How near a tap must land to a pin to count as selecting it, in metres.
@@ -83,7 +84,7 @@ fun MapScreen(
     var focusOn by remember { mutableStateOf<LatLng?>(null) }
     var focusNonce by remember { mutableStateOf(0) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B1520))) {
+    Box(modifier = Modifier.fillMaxSize().background(Hedayah.Ivory)) {
         CampusMapView(
             landmarks = landmarks,
             route = route,
@@ -124,6 +125,7 @@ fun MapScreen(
                 fontSize = 13.sp,
                 modifier = Modifier
                     .background(Panel, RoundedCornerShape(12.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onClose)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             )
@@ -141,7 +143,7 @@ fun MapScreen(
                     val selected = kind == styleKind
                     Text(
                         text = kind.labelAr,
-                        color = if (selected) Color(0xFF0B1520) else Muted,
+                        color = if (selected) Hedayah.Paper else Muted,
                         fontSize = 12.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier
@@ -149,6 +151,7 @@ fun MapScreen(
                                 if (selected) Accent else Color.Transparent,
                                 RoundedCornerShape(10.dp)
                             )
+                            .heightIn(min = 48.dp)
                             .clickable { styleKind = kind }
                             .padding(horizontal = 12.dp, vertical = 7.dp)
                     )
@@ -160,15 +163,16 @@ fun MapScreen(
         userFix?.position?.takeIf { it.isValid }?.let { me ->
             Text(
                 "◎",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 20.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 14.dp)
-                    .size(46.dp)
+                    .size(48.dp)
                     .background(Panel, CircleShape)
-                    .clickable {
+                    .heightIn(min = 48.dp)
+                            .clickable {
                         // Bump the nonce so pressing twice recentres twice,
                         // even though the coordinate is identical.
                         focusOn = LatLng(me.latitude, me.longitude)

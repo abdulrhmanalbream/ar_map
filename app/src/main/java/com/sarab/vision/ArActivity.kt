@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
+import com.sarab.vision.ui.HedayahTheme
+import com.sarab.vision.ui.Hedayah
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -138,6 +140,7 @@ class ArActivity : ComponentActivity() {
         }
 
         setContent {
+            HedayahTheme(camera = true) {
             Box(modifier = Modifier.fillMaxSize()) {
                 when (val state = uiState) {
                     is ScreenState.PermissionDenied -> BlockingMessage(
@@ -220,6 +223,7 @@ class ArActivity : ComponentActivity() {
                 if (showIgnition) {
                     IgnitionSplash(onFinished = { showIgnition = false })
                 }
+            }
             }
         }
     }

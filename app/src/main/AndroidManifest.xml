@@ -3,7 +3,9 @@
 
     <!--
       Local navigation and Eye processing work offline. Map downloads and the
-      optional group/assistant features need internet; Eye frames stay local.
+      optional group/assistant features need internet. The visual companion sends
+      reduced snapshots from the selected Eye or phone camera only after explicit
+      consent in the foreground HUD. Phone companion capture does not need ARCore.
     -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -85,8 +87,9 @@
         android:theme="@style/Theme.SarabVision">
 
         <!--
-          "AR Required" tells Google Play to only surface this app on
-          ARCore-capable devices, and lets ARCore prompt for its own install.
+          ARCore is optional: only the separate phone AR navigation feature
+          requests its installation. Both religious companion camera sources
+          work independently of an ARCore session.
         -->
         <meta-data
             android:name="com.google.ar.core"

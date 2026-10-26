@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,7 +46,7 @@ fun ScanHint(text: String, visible: Boolean) {
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .background(Color(0xCC1B2430), RoundedCornerShape(24.dp))
+                    .background(Hedayah.HudRaised.copy(alpha = 0xCC / 255f), RoundedCornerShape(24.dp))
                     .padding(horizontal = 20.dp, vertical = 12.dp)
             )
         }
@@ -66,16 +69,18 @@ fun BlockingMessage(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0D1B2A)),
+            .background(Hedayah.Ivory),
         contentAlignment = Alignment.Center
     ) {
         Column(
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            HedayahMasthead()
+            Box(modifier = Modifier.height(32.dp))
             Text(
                 text = title,
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center
@@ -83,7 +88,7 @@ fun BlockingMessage(
             Box(modifier = Modifier.height(12.dp))
             Text(
                 text = body,
-                color = Color(0xFF9FB3C8),
+                color = Hedayah.Muted,
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
                 textAlign = TextAlign.Center
@@ -94,8 +99,8 @@ fun BlockingMessage(
                 Button(
                     onClick = onAction,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4FC3F7),
-                        contentColor = Color(0xFF0D1B2A)
+                        containerColor = Hedayah.Forest,
+                        contentColor = Hedayah.Ivory
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {

@@ -1,0 +1,16 @@
+{
+  "productName": "المطوف الذكي",
+  "slogan": "رفيقٌ وفيّ، وسندٌ قويّ.",
+  "team": "سعي",
+  "colors": {
+    "green": "#173E35",
+    "gold": "#B89B5C",
+    "ivory": "#F6F5EF"
+  },
+  "interfaceFont": "IBM Plex Sans Arabic",
+  "approvedFor": [
+    "التطبيق",
+    "العرض التقديمي"
+  ],
+  "sourceDate": "2026-09-08"
+}

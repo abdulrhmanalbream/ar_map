@@ -35,9 +35,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sarab.vision.core.TourState
 
-private val Ink = Color(0xFF0B1520)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val Ink = Hedayah.Hud
+private val Accent = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
 
 /**
  * Narration for the scripted demo.

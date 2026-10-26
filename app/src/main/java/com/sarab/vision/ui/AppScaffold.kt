@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,11 +30,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val Bg = Color(0xFF0B1520)
-private val Bar = Color(0xFF121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
-private val Hairline = Color(0xFF1E2A38)
+private val Bg = Hedayah.Ivory
+private val Bar = Hedayah.Hud
+private val Accent = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
+private val Hairline = Hedayah.Muted
 
 /** The main sections of the app, shown in the bottom bar. */
 enum class AppTab(val labelAr: String) {
@@ -110,6 +111,8 @@ private fun AppHeader(
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
+        HedayahLogo(Modifier.width(58.dp).height(36.dp))
+        Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 title,
@@ -128,7 +131,8 @@ private fun AppHeader(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                    .background(Hedayah.HudRaised, RoundedCornerShape(10.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onAction)
                     .padding(horizontal = 14.dp, vertical = 9.dp)
             )
@@ -164,7 +168,8 @@ private fun TabItem(tab: AppTab, selected: Boolean, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Box(

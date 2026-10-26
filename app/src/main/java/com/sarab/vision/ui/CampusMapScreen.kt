@@ -43,21 +43,21 @@ import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.core.formatDistanceAr
 import kotlin.math.hypot
 
-private val Bg = Color(0xFF0B1520)
-private val Panel = Color(0xE6121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Muted = Color(0xFF9FB3C8)
-private val Grid = Color(0xFF1A2634)
+private val Bg = Hedayah.Ivory
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Amber = Hedayah.DarkGold
+private val Muted = Hedayah.Muted
+private val Grid = Hedayah.Outline
 
 /** Colour per landmark category, so the map reads at a glance. */
 private fun categoryColour(c: LandmarkCategory): Color = when (c) {
-    LandmarkCategory.HOUSING -> Color(0xFF66D9AF)
-    LandmarkCategory.SPORTS -> Color(0xFFFFB300)
-    LandmarkCategory.FACULTY -> Color(0xFF4FC3F7)
+    LandmarkCategory.HOUSING -> Hedayah.Good
+    LandmarkCategory.SPORTS -> Hedayah.DarkGold
+    LandmarkCategory.FACULTY -> Hedayah.Forest
     LandmarkCategory.SERVICES -> Color(0xFFBA68C8)
-    LandmarkCategory.GATE -> Color(0xFFEF5350)
-    LandmarkCategory.OTHER -> Color(0xFF9FB3C8)
+    LandmarkCategory.GATE -> Hedayah.Error
+    LandmarkCategory.OTHER -> Hedayah.Muted
 }
 
 /**
@@ -175,7 +175,7 @@ fun CampusMapScreen(
                         }
                     }
                 }
-                drawCircle(Color.White, radius = 11f, center = Offset(pt.x, pt.y))
+                drawCircle(Hedayah.Ink, radius = 11f, center = Offset(pt.x, pt.y))
                 drawCircle(Accent, radius = 8f, center = Offset(pt.x, pt.y))
             }
 
@@ -195,7 +195,7 @@ fun CampusMapScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "خريطة الحرم",
-                        color = Color.White,
+                        color = Hedayah.Ink,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -252,7 +252,7 @@ fun CampusMapScreen(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(lm.name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(lm.name, color = Hedayah.Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     Text(
                         buildString {
                             append(lm.category.labelAr)
@@ -304,9 +304,9 @@ private fun DrawScope.drawScaleBar(meters: Int, metersPerPixel: Double) {
     val x0 = 28f
     val x1 = x0 + lengthPx.coerceAtMost(size.width * 0.5f)
 
-    drawLine(Color.White, Offset(x0, y), Offset(x1, y), strokeWidth = 3f)
-    drawLine(Color.White, Offset(x0, y - 7f), Offset(x0, y + 7f), strokeWidth = 3f)
-    drawLine(Color.White, Offset(x1, y - 7f), Offset(x1, y + 7f), strokeWidth = 3f)
+    drawLine(Hedayah.Ink, Offset(x0, y), Offset(x1, y), strokeWidth = 3f)
+    drawLine(Hedayah.Ink, Offset(x0, y - 7f), Offset(x0, y + 7f), strokeWidth = 3f)
+    drawLine(Hedayah.Ink, Offset(x1, y - 7f), Offset(x1, y + 7f), strokeWidth = 3f)
 }
 
 @Composable
@@ -318,7 +318,7 @@ private fun EmptyMapMessage(onClose: () -> Unit) {
     ) {
         Text(
             "لا توجد معالم مسجلة بعد",
-            color = Color.White,
+            color = Hedayah.Ink,
             fontSize = 19.sp,
             fontWeight = FontWeight.SemiBold
         )

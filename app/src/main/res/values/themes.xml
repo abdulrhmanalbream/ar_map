@@ -5,6 +5,7 @@
       window background is transparent and there is no action bar.
     -->
     <style name="Theme.SarabVision" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorAccent">#B49A5B</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

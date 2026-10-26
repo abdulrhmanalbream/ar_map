@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.sarab.vision.NavigationBackgroundFixtureActivity" android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <activity android:name="com.sarab.vision.NavigationVoiceFixtureActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" />
+        <activity android:name="com.sarab.vision.VisionImportFixtureActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" />
+        <!-- Local screenshot fixture: accessible only to adb/system holders of DUMP. -->
+        <activity android:name="com.sarab.vision.VisionPreviewActivity" android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <activity android:name="com.sarab.vision.VisionDelayFixtureActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" />
+        <activity android:name="com.sarab.vision.VisionLiveFixtureActivity" android:exported="true"
+            android:permission="android.permission.DUMP" android:launchMode="singleTop" />
+        <activity android:name="com.sarab.vision.VisionPanelPreviewActivity" android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

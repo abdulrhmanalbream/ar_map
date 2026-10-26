@@ -33,10 +33,10 @@ import com.sarab.vision.core.compassTarget
 import com.sarab.vision.core.compassTicks
 import com.sarab.vision.core.formatDistanceAr
 
-private val Ink = Color(0xFF0B1520)
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Muted = Color(0xFF9FB3C8)
+private val Ink = Hedayah.Hud
+private val Accent = Hedayah.HudGold
+private val Amber = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
 
 /**
  * The compass ribbon across the top of the camera.
@@ -78,7 +78,7 @@ fun CompassBar(
         ) {
             Row(
                 modifier = Modifier
-                    .background(Color(0xCC16202C), RoundedCornerShape(22.dp))
+                    .background(Hedayah.HudRaised.copy(alpha = 0xCC / 255f), RoundedCornerShape(22.dp))
                     .padding(3.dp)
             ) {
                 TravelMode.entries.forEach { mode ->

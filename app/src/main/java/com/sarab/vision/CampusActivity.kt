@@ -8,6 +8,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
+import com.sarab.vision.ui.HedayahTheme
+import com.sarab.vision.ui.Hedayah
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +63,13 @@ class CampusActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
 
         // Shared instance: the AR screen must see the same target, fix and
         // landmark set, otherwise choosing a destination here would mean
@@ -82,6 +91,7 @@ class CampusActivity : ComponentActivity() {
         }
 
         setContent {
+            HedayahTheme(camera = false) {
             // Force right-to-left layout.
             //
             // The UI is Arabic but the device locale here is en-GB, so
@@ -96,7 +106,7 @@ class CampusActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF0D1B2A))
+                    .background(Hedayah.Ivory)
             ) {
                 // Screens that can work with no live position at all.
                 //
@@ -262,6 +272,7 @@ class CampusActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
             }
             }
         }

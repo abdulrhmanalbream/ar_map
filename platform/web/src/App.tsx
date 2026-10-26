@@ -1,9 +1,11 @@
 /* THESIS: Group coordination starts with who needs attention and where their consented last location is.
- * OWN-WORLD: Warm ivory work surface, deep teal right rail, restrained Noto Sans Arabic, border-defined operational panels.
+ * OWN-WORLD: Hedayathon forest, warm ivory and restrained gold; original event logo with IBM Plex Sans Arabic.
  * STORY: Sign in, enroll the first group, identify connection/help state, locate a member, send and verify an alert.
  * FIRST VIEWPORT: Right navigation, compact status strip, member roster beside a dominant readable map; send alert at the top.
  * FORM: Explicitly brief-pinned operational workspace; no fabricated live activity or decorative charts.
  */
+import 'leaflet/dist/leaflet.css';
+import './styles.css';
 import {
   useCallback,
   useEffect,
@@ -81,12 +83,14 @@ const errorText = (error: unknown) =>
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? "brand-light" : ""}`}>
-      <span className="brand-symbol" aria-hidden="true">
-        <Layers3 size={28} strokeWidth={1.7} />
-      </span>
-      <div>
+      <div className="brand-name">
         <strong>المطوف الذكي</strong>
         <small lang="en" dir="ltr">Smart Mutawwif</small>
+        <a className="brand-home-link" href="/">عن المشروع <ArrowUpLeft size={14} aria-hidden="true" /></a>
+      </div>
+      <div className="brand-event">
+        <img src="/brand/hedayathon-logo.png" width="801" height="494" alt="هداية ثون" />
+        <span>هداية ثون • فريق سعي</span>
       </div>
     </div>
   );
@@ -151,7 +155,7 @@ function Login({
       <section className="login-story">
         <Brand compact />
         <div className="login-message">
-          <span className="login-line" />
+          <span className="login-line" aria-hidden="true" />
           <h1>
             رؤية أوضح.
             <br />
@@ -177,7 +181,7 @@ function Login({
       </section>
       <section className="login-form-region">
         <form className="login-form" onSubmit={submit}>
-          <span className="section-kicker">لوحة المشرف</span>
+          <span className="section-kicker"><ShieldCheck size={18} /> لوحة المشرف</span>
           <h2>أهلًا بعودتك</h2>
           <p>سجّل الدخول للوصول إلى مركز المتابعة.</p>
           {error && (
@@ -221,8 +225,9 @@ function Login({
           <div className="login-help">
             تحتاج إلى حساب؟ تواصل مع مسؤول المنصة للحصول على بيانات الدخول.
           </div>
+          <a className="button secondary full" href="/dashboard">عرض الداشبورد بدون تسجيل دخول</a>
         </form>
-        <small className="login-footer">مركز متابعة المطوف الذكي · الإصدار ٣</small>
+        <small className="login-footer">المطوف الذكي · هداية ثون ٢٠٢٦ · فريق سعي</small>
       </section>
     </main>
   );
@@ -581,7 +586,7 @@ export default function App() {
             <h1>{PAGE_TITLES[page]}</h1>
             <p>
               {page === "overview"
-                ? "كل عضو أقرب. وكل طلب مساعدة في مكانه."
+                ? "تابع أعضاء المجموعة واستجب لطلبات المساعدة."
                 : page === "groups"
                   ? "نظّم الأعضاء في مجموعات وشارك رموز الانضمام."
                   : page === "alerts"
@@ -773,7 +778,7 @@ export default function App() {
                     >
                       {data.devices.length
                         ? "غيّر المجموعة أو كلمات البحث لعرض أعضاء آخرين."
-                        : "أنشئ مجموعة، ثم أعطِ الأعضاء رمز الانضمام لربط تطبيقاتهم بلوحة المتابعة."}
+                        : "يمكن للأعضاء دخول المجموعة العامة من التطبيق بالاسم فقط، أو الانضمام إلى مجموعة خاصة برمز دعوة."}
                     </EmptyState>
                   )}
                   <div className="roster-footer">
@@ -1010,6 +1015,7 @@ function GroupRow({
         </span>
         <div className="group-name">
           <h3>{group.name}</h3>
+          {group.isDefault && <small className="default-group-note">المجموعة العامة · الانضمام من التطبيق بدون رمز</small>}
           <p>
             {number(group.memberCount)} عضو <span>·</span> {number(online)} متصل
           </p>

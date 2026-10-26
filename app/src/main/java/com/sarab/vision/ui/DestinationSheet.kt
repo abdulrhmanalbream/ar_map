@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,9 +30,9 @@ import com.sarab.vision.core.CampusMap
 import com.sarab.vision.core.Destination
 import kotlin.math.roundToInt
 
-private val SheetBackground = Color(0xFF121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val SheetBackground = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Muted = Hedayah.Muted
 
 /**
  * "Select Destination" bottom sheet, shown on launch and reopenable from the
@@ -42,7 +43,7 @@ private val Muted = Color(0xFF9FB3C8)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DestinationSheet(
+private fun DestinationSheetContent(
     visible: Boolean,
     selectedId: String?,
     onSelect: (Destination) -> Unit,
@@ -74,7 +75,7 @@ fun DestinationSheet(
         Column(modifier = Modifier.padding(horizontal = 20.dp)) {
             Text(
                 text = "Select Destination",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -106,17 +107,18 @@ private fun DestinationRow(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val border = if (selected) Accent else Color(0xFF223040)
+    val border = if (selected) Accent else Hedayah.Outline
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (selected) Color(0xFF16273A) else Color(0xFF18222E),
+                if (selected) Hedayah.Soft else Hedayah.Paper,
                 RoundedCornerShape(16.dp)
             )
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(16.dp)
     ) {
         Box(
@@ -138,7 +140,7 @@ private fun DestinationRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = destination.name,
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -177,8 +179,9 @@ fun ChangeDestinationButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
         modifier = modifier
-            .background(Color(0xE6121A24), RoundedCornerShape(28.dp))
-            .clickable(onClick = onClick)
+            .background(Hedayah.Paper, RoundedCornerShape(28.dp))
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
         Box(
@@ -190,7 +193,7 @@ fun ChangeDestinationButton(
         Column {
             Text(
                 text = label,
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -209,4 +212,9 @@ fun ChangeDestinationButton(
             }
         }
     }
+}
+
+@Composable
+fun DestinationSheet(visible: Boolean, selectedId: String?, onSelect: (Destination) -> Unit, onDismiss: () -> Unit) {
+    HedayahTheme { DestinationSheetContent(visible, selectedId, onSelect, onDismiss) }
 }

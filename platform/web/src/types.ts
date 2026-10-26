@@ -7,6 +7,7 @@ export interface Group {
   id: string;
   name: string;
   memberCount: number;
+  isDefault?: boolean;
 }
 export interface Location {
   lat: number;

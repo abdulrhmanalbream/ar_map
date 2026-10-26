@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="WatchTheme" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">@font/hedaya_regular</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowBackground">#071315</item>
-        <item name="android:colorAccent">#69E8D7</item>
+        <item name="android:windowBackground">#081B16</item>
+        <item name="android:colorAccent">#B49A5B</item>
+        <item name="android:colorControlHighlight">#40B49A5B</item>
+        <item name="android:textColorPrimary">#F5F3EB</item>
+        <item name="android:textColorSecondary">#C1CCC1</item>
     </style>
     <string-array name="android_wear_capabilities">
         <item>sarab_watch</item>

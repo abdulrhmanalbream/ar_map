@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -43,11 +44,11 @@ import com.sarab.vision.core.parseGoogleMapsLink
 import com.sarab.vision.map.CampusMapView
 import com.sarab.vision.map.MapStyles
 
-private val Panel = Color(0xE6121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Good = Color(0xFF66D9AF)
-private val Bad = Color(0xFFEF5350)
-private val Muted = Color(0xFF9FB3C8)
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Good = Hedayah.Good
+private val Bad = Hedayah.Error
+private val Muted = Hedayah.Muted
 
 /**
  * Picks a coordinate without needing a GPS fix at the spot.
@@ -87,7 +88,7 @@ fun LocationPickerScreen(
     var focusOn by remember { mutableStateOf(initial ?: userFix?.position) }
     var focusNonce by remember { mutableStateOf(0) }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B1520))) {
+    Box(modifier = Modifier.fillMaxSize().background(Hedayah.Ivory)) {
         CampusMapView(
             landmarks = landmarks,
             route = null,
@@ -127,13 +128,14 @@ fun LocationPickerScreen(
                 fontSize = 13.sp,
                 modifier = Modifier
                     .background(Panel, RoundedCornerShape(12.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onClose)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 "حرّك الخريطة لتحديد الموقع",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 12.sp,
                 modifier = Modifier
                     .background(Panel, RoundedCornerShape(12.dp))
@@ -147,7 +149,8 @@ fun LocationPickerScreen(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .background(Panel, RoundedCornerShape(12.dp))
-                        .clickable {
+                        .heightIn(min = 48.dp)
+                            .clickable {
                             focusOn = LatLng(me.latitude, me.longitude)
                             focusNonce++
                         }
@@ -168,7 +171,7 @@ fun LocationPickerScreen(
         ) {
             Text(
                 "%.6f, %.6f".format(centre.latitude, centre.longitude),
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -184,14 +187,14 @@ fun LocationPickerScreen(
                 label = { Text("أو الصق رابط خرائط جوجل", fontSize = 12.sp) },
                 singleLine = true,
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFF16202C),
-                    unfocusedContainerColor = Color(0xFF16202C),
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedContainerColor = Hedayah.Paper,
+                    unfocusedContainerColor = Hedayah.Paper,
+                    focusedTextColor = Hedayah.Ink,
+                    unfocusedTextColor = Hedayah.Ink,
                     focusedLabelColor = Accent,
                     unfocusedLabelColor = Muted,
                     focusedIndicatorColor = Accent,
-                    unfocusedIndicatorColor = Color(0xFF243244),
+                    unfocusedIndicatorColor = Hedayah.Soft,
                     cursorColor = Accent
                 ),
                 shape = RoundedCornerShape(12.dp),
@@ -213,10 +216,11 @@ fun LocationPickerScreen(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .background(Color(0xFF1B2836), RoundedCornerShape(12.dp))
+                        .background(Hedayah.Soft, RoundedCornerShape(12.dp))
                         .then(
                             if (linkText.isBlank()) Modifier
-                            else Modifier.clickable {
+                            else Modifier.heightIn(min = 48.dp)
+                            .clickable {
                                 when (val result = parseGoogleMapsLink(linkText)) {
                                     is MapsLinkResult.Found -> {
                                         centre = result.position
@@ -235,14 +239,15 @@ fun LocationPickerScreen(
                 )
                 Text(
                     "تأكيد الموقع",
-                    color = Color(0xFF0B1520),
+                    color = Hedayah.Ivory,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
                         .background(Accent, RoundedCornerShape(12.dp))
-                        .clickable { onConfirm(centre) }
+                        .heightIn(min = 48.dp)
+                            .clickable { onConfirm(centre) }
                         .padding(vertical = 12.dp)
                 )
             }

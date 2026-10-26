@@ -4,6 +4,7 @@ import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.Frame
+import com.sarab.vision.diagnostics.DiagnosticLog
 import java.nio.FloatBuffer
 
 /**
@@ -24,8 +25,8 @@ class CameraBackgroundRenderer {
     var textureId: Int = -1
         private set
 
-    private lateinit var quadCoords: FloatBuffer
-    private lateinit var quadTexCoords: FloatBuffer
+    private var uv = CameraUvCoordinates()
+    private var invalidUvReported = false
 
     private val vertexShader = """
         attribute vec4 a_Position;
@@ -72,18 +73,10 @@ class CameraBackgroundRenderer {
             GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR
         )
 
-        // Full-screen quad in normalised device coordinates.
-        quadCoords = floatBufferOf(
-            floatArrayOf(
-                -1f, -1f,
-                +1f, -1f,
-                -1f, +1f,
-                +1f, +1f
-            )
-        )
-        // Placeholder UVs; ARCore rewrites these each frame to account for
-        // display rotation and camera aspect.
-        quadTexCoords = floatBuffer(8)
+        // A recreated GL context owns new buffers even if ARCore's surface geometry
+        // did not change. The first real frame must always initialise these UVs.
+        uv = CameraUvCoordinates()
+        invalidUvReported = false
 
         program = buildProgram(vertexShader, fragmentShader)
         positionAttrib = GLES20.glGetAttribLocation(program, "a_Position")
@@ -91,27 +84,41 @@ class CameraBackgroundRenderer {
         textureUniform = GLES20.glGetUniformLocation(program, "u_Texture")
     }
 
+    fun invalidateUv() {
+        uv.invalidate()
+        invalidUvReported = false
+    }
+
     fun draw(frame: Frame) {
-        // Only recompute UVs when the display geometry actually changed --
-        // doing it every frame is wasted work on a mid-range GPU.
-        if (frame.hasDisplayGeometryChanged()) {
+        draw(frame.timestamp, frame.hasDisplayGeometryChanged()) { positions, texture ->
             frame.transformCoordinates2d(
                 Coordinates2d.OPENGL_NORMALIZED_DEVICE_COORDINATES,
-                quadCoords,
+                positions,
                 Coordinates2d.TEXTURE_NORMALIZED,
-                quadTexCoords
+                texture
             )
         }
+    }
 
-        if (frame.timestamp == 0L) {
-            // Suppress rendering until the first real frame arrives, or the
-            // screen flashes undefined texture contents.
-            return
+    /** Same OES draw path also accepts a SurfaceTexture producer for offline GL validation. */
+    internal fun draw(timestampNanos: Long, displayGeometryChanged: Boolean,
+        transformUv: (FloatBuffer, FloatBuffer) -> Unit): Boolean {
+        val refresh = !uv.ready || displayGeometryChanged
+        if (!uv.update(timestampNanos, displayGeometryChanged, transformUv)) {
+            if (timestampNanos != 0L && !invalidUvReported) {
+                DiagnosticLog.record("ArCamera", "uv rejected reason=degenerate_or_nonfinite")
+                invalidUvReported = true
+            }
+            return false
+        }
+        if (refresh) {
+            invalidUvReported = false
+            DiagnosticLog.record("ArCamera", "uv ready geometryChanged=$displayGeometryChanged")
         }
 
-        quadCoords.position(0)
-        quadTexCoords.position(0)
-
+        // Client-memory attributes must not inherit a VBO binding from virtual content.
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDepthMask(false)
 
@@ -121,10 +128,10 @@ class CameraBackgroundRenderer {
         GLES20.glUniform1i(textureUniform, 0)
 
         GLES20.glVertexAttribPointer(
-            positionAttrib, 2, GLES20.GL_FLOAT, false, 0, quadCoords
+            positionAttrib, 2, GLES20.GL_FLOAT, false, 0, uv.positions
         )
         GLES20.glVertexAttribPointer(
-            texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords
+            texCoordAttrib, 2, GLES20.GL_FLOAT, false, 0, uv.texture
         )
         GLES20.glEnableVertexAttribArray(positionAttrib)
         GLES20.glEnableVertexAttribArray(texCoordAttrib)
@@ -138,5 +145,6 @@ class CameraBackgroundRenderer {
         GLES20.glDepthMask(true)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         checkGlError("camera background draw")
+        return true
     }
 }

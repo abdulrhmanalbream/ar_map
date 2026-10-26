@@ -1,0 +1,312 @@
+{
+  "identity": "المطوف الذكي",
+  "files": [
+    {
+      "file": "android/res/drawable/smart_mutawwif_monochrome.xml",
+      "bytes": 2430,
+      "sha256": "7ef018755694382048badb5ed69a94930658ad958eee646de0ffe57e581f75b2"
+    },
+    {
+      "file": "android/res/drawable/smart_mutawwif_symbol.xml",
+      "bytes": 2430,
+      "sha256": "8d182cd687463e69df264099377d221756d3e4a1e52ea152d2213ff2340e9434"
+    },
+    {
+      "file": "android/res/drawable/smart_mutawwif_symbol_on_dark.xml",
+      "bytes": 2430,
+      "sha256": "8582df62c1a60920377b38f5bbb542d9f5578f312e5d6d97bc7d9d6a2a2de2f2"
+    },
+    {
+      "file": "android/res/drawable-nodpi/smart_mutawwif_logo.png",
+      "bytes": 64124,
+      "sha256": "dc4b2b48f5a453b73e4074528e4e2292b72d331a83f33814bba3f33b85632b08"
+    },
+    {
+      "file": "android/res/mipmap-anydpi-v26/ic_smart_mutawwif.xml",
+      "bytes": 325,
+      "sha256": "c29749cd52341ef4f5e88e614069a1d686071a9e8fc7df3fb26014b2bc749b0f"
+    },
+    {
+      "file": "android/res/mipmap-anydpi-v26/ic_smart_mutawwif_round.xml",
+      "bytes": 325,
+      "sha256": "c29749cd52341ef4f5e88e614069a1d686071a9e8fc7df3fb26014b2bc749b0f"
+    },
+    {
+      "file": "android/res/mipmap-hdpi/ic_smart_mutawwif.png",
+      "bytes": 1646,
+      "sha256": "b1621ac795143e9f717ba94c44eadfb10aa45829cadb838371027cb0188e2100"
+    },
+    {
+      "file": "android/res/mipmap-hdpi/ic_smart_mutawwif_round.png",
+      "bytes": 2508,
+      "sha256": "d3fe3380355971eb68ad79db06f85a5bb2d873a02be325f2ffad3bc209df6e86"
+    },
+    {
+      "file": "android/res/mipmap-mdpi/ic_smart_mutawwif.png",
+      "bytes": 1103,
+      "sha256": "ffdbe8d29a61d0e81c6afed152685881e9f805482e819b0d25c9072722b105ac"
+    },
+    {
+      "file": "android/res/mipmap-mdpi/ic_smart_mutawwif_round.png",
+      "bytes": 1638,
+      "sha256": "3a6e1f098e5c9f6410be042f3f8ecc82f80d9fef4b28a4d9c49a370e50b32fc4"
+    },
+    {
+      "file": "android/res/mipmap-xhdpi/ic_smart_mutawwif.png",
+      "bytes": 2216,
+      "sha256": "7cb87aceccf3b54404662081457f5cea3df4ee2703db6501a848a5a0d9266d93"
+    },
+    {
+      "file": "android/res/mipmap-xhdpi/ic_smart_mutawwif_round.png",
+      "bytes": 3328,
+      "sha256": "73d83921c8c89140b82f1d00cf5710935cfc1d9e8c06baeda6065332fab7e546"
+    },
+    {
+      "file": "android/res/mipmap-xxhdpi/ic_smart_mutawwif.png",
+      "bytes": 3552,
+      "sha256": "3407a3851c0cc3ef81f07d1fafca68b131665b44d232bbef4e1bf7a8b06e1095"
+    },
+    {
+      "file": "android/res/mipmap-xxhdpi/ic_smart_mutawwif_round.png",
+      "bytes": 5141,
+      "sha256": "5c3507c2315124488c29c22a49bd149cea59ea24360566f57764942cb5cd7e3a"
+    },
+    {
+      "file": "android/res/mipmap-xxxhdpi/ic_smart_mutawwif.png",
+      "bytes": 4897,
+      "sha256": "4cb6fc9ccced8c0a4ad2cbe22567a2aef3d813757915ed419e5192f2cd039225"
+    },
+    {
+      "file": "android/res/mipmap-xxxhdpi/ic_smart_mutawwif_round.png",
+      "bytes": 7158,
+      "sha256": "2af4ebb7176f22cef02e437d5d0db9d7bb499f196a1d630a1bf16880b475260c"
+    },
+    {
+      "file": "android/res/values/smart_mutawwif_colors.xml",
+      "bytes": 116,
+      "sha256": "c1efa428f253ca8fb844b9d86f486490bf4f1ab5de8f83ab9076d36fdcd71899"
+    },
+    {
+      "file": "fonts/IBMPlexSansArabic-Regular.ttf",
+      "bytes": 235924,
+      "sha256": "6f611412270a132bbac838da9259d4c68569b4175f3b3b8fa3fa36a30b56dab9"
+    },
+    {
+      "file": "fonts/IBMPlexSansArabic-SemiBold.ttf",
+      "bytes": 244616,
+      "sha256": "597bd5502e5997be4414e4c9c88834b30ff3784250c84f20bce2b20e53ebd467"
+    },
+    {
+      "file": "fonts/OFL.txt",
+      "bytes": 4456,
+      "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da"
+    },
+    {
+      "file": "index.html",
+      "bytes": 21025,
+      "sha256": "38d6464b375e1e249d3bc9eb47bd17b56758b5acbc43f13d8f6ad71e5f865e91"
+    },
+    {
+      "file": "png/smart-mutawwif-adaptive-foreground.png",
+      "bytes": 9887,
+      "sha256": "53ef0350c5c7280927849d9166828080bb4d85b5a4b2d94a8c1a558ad4c063ab"
+    },
+    {
+      "file": "png/smart-mutawwif-logo-3200.png",
+      "bytes": 155322,
+      "sha256": "1ddcc87297c2c5709a230d47e0b5ad4e466cafcfc40ff1bdf767d06ed07aeabd"
+    },
+    {
+      "file": "png/smart-mutawwif-logo-on-dark.png",
+      "bytes": 62925,
+      "sha256": "cce320d33ea015416c458f25b27a8b7049d42114b8dfe4f8715f75ea8c27122a"
+    },
+    {
+      "file": "png/smart-mutawwif-logo.png",
+      "bytes": 64124,
+      "sha256": "dc4b2b48f5a453b73e4074528e4e2292b72d331a83f33814bba3f33b85632b08"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-1024.png",
+      "bytes": 57931,
+      "sha256": "0c63c0638ba5eb249673491134045bbc518ee7cd6ec0d521b026fd2b9279399d"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-128.png",
+      "bytes": 3636,
+      "sha256": "766722852244c68ca895f720ed86f6506cdbd5755a883806e2ec84b450d5eb9b"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-192.png",
+      "bytes": 5565,
+      "sha256": "8ccdd1bf0efd61ba9215740a6b1f7e0acf27f8bb6962ab2c5f4b3efd6a289d8e"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-256.png",
+      "bytes": 7599,
+      "sha256": "64281b254ae76afcd29887e1db487d54878df8de830f0e8761f24a2a680f5794"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-32.png",
+      "bytes": 913,
+      "sha256": "f99850ba058352a0153d88f17853dd68f17550fb076fd3d09b942e806e7f346f"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-48.png",
+      "bytes": 1365,
+      "sha256": "e532839434636a294d8c2f12607e827bc89d62953547c5bc4f19be136ceae95b"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-512.png",
+      "bytes": 26385,
+      "sha256": "babcc1e3ab8be7b0d3daefc04b4da6f8e0a7c4df17015c96d2776ab2dd252d97"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-64.png",
+      "bytes": 1796,
+      "sha256": "116270cf93a69ba8a37d6f5d939c1a65f05ef9cd6196915bbeeb6e36c4a30a3a"
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-96.png",
+      "bytes": 2668,
+      "sha256": "f9020d66c7b4cce86d514c41d4d2323d2df88988fede1f6f799c2e9905d36647"
+    },
+    {
+      "file": "presentation/smart-mutawwif-dark-4k.png",
+      "bytes": 262050,
+      "sha256": "077fba35bb5dcc6834b2933ea3dad2cf4448fbf8a3c163e812d47e23fb430f25"
+    },
+    {
+      "file": "presentation/smart-mutawwif-light-4k.png",
+      "bytes": 262032,
+      "sha256": "06bccfd60bd0502dd1ccbf444ab895dbfa4e2601aedc5ff530879e575fef9e03"
+    },
+    {
+      "file": "prompts/00-selected-concept.txt",
+      "bytes": 4866,
+      "sha256": "520bd5caa65a2afea2d49e8c9155a58d269904d7c86290f1fdbe2326bd6c8652"
+    },
+    {
+      "file": "prompts/01-polish-logo.txt",
+      "bytes": 2003,
+      "sha256": "ad0a4dd2ef3a0c824b77146664cde07fa4b42e8ab4183b82480a507f0a42a2b6"
+    },
+    {
+      "file": "prompts/02-app-symbol.txt",
+      "bytes": 1018,
+      "sha256": "1e0a113224122007178c02ef64f93f6c1cc68f79ae6e5f6558a4df4326cb2ba8"
+    },
+    {
+      "file": "qa.json",
+      "bytes": 1017,
+      "sha256": "9fa9d8543d336987997cdca8609bcef50bb6d7de79e5d1a84004de37edb7da6b"
+    },
+    {
+      "file": "references/presidency-reference.png",
+      "bytes": 73453,
+      "sha256": "52c81e38e28422f4890aaa50b770f91f33cbfc1e334db1c66bfe5ca0137fe80a"
+    },
+    {
+      "file": "source/brand-tokens.json",
+      "bytes": 366,
+      "sha256": "401dbf8167c8979bd911e69e3d268a277fc02b5c9b31beac45725a09d491bf57"
+    },
+    {
+      "file": "source/export-assets.cjs",
+      "bytes": 6392,
+      "sha256": "aa231d98b45dc796d2a2ccb62286d6d188973a023970228d012d1e44922658d8"
+    },
+    {
+      "file": "source/outline-type.py",
+      "bytes": 1957,
+      "sha256": "015120bbc204b6138fb4b4c6f133ebf143cf16224d3f8667f25154940d3f07fb"
+    },
+    {
+      "file": "source/package.json",
+      "bytes": 137,
+      "sha256": "dd934f8502a6bda6845c11dc22e877095cbf46ea1071482690e6c9d42f58877d"
+    },
+    {
+      "file": "source/requirements.txt",
+      "bytes": 36,
+      "sha256": "c65189f91a43a26e4a425a3d876298e0261d7f3a37406d766e7500d8d07fcfae"
+    },
+    {
+      "file": "source/selected-concept.png",
+      "bytes": 1238114,
+      "sha256": "89f4baae8a41da049e215eed4658fd38a6097fb31839419638cfb83b1ce134f8"
+    },
+    {
+      "file": "source/smart-mutawwif-logo-on-dark.svg",
+      "bytes": 17473,
+      "sha256": "53ab070ef22bed9292d57026f15f175883177143ec4dc47f759421e66b09f6db"
+    },
+    {
+      "file": "source/smart-mutawwif-logo.svg",
+      "bytes": 17473,
+      "sha256": "4398a88c7dc9fe8175773a0e7c385ccc0a1dc239be0f69e111aba7f8ef9563b2"
+    },
+    {
+      "file": "source/smart-mutawwif-symbol-compact.svg",
+      "bytes": 1762,
+      "sha256": "a4d8d144a386559809bb6fcbebe3fa8a014c6ae799c658961e014d57002bf972"
+    },
+    {
+      "file": "source/smart-mutawwif-symbol-monochrome.svg",
+      "bytes": 2277,
+      "sha256": "b9ffab033a8d90f51abc37c0589b37915c2f4bd371acd86777c6f57ed113ac8c"
+    },
+    {
+      "file": "source/smart-mutawwif-symbol.svg",
+      "bytes": 2277,
+      "sha256": "44eb60bdba05b629ab0987e97f35c9a47bc7eda14392d9bb7e4ecefe48fa146e"
+    },
+    {
+      "file": "source/wordmark-paths.svg",
+      "bytes": 15724,
+      "sha256": "d1b791caf6f79246c120679bc0ee88346c8f11e7efcdd1982725a78ff5062720"
+    },
+    {
+      "file": "web/favicon-32.png",
+      "bytes": 913,
+      "sha256": "f99850ba058352a0153d88f17853dd68f17550fb076fd3d09b942e806e7f346f"
+    },
+    {
+      "file": "web/smart-mutawwif-logo-on-dark.png",
+      "bytes": 62925,
+      "sha256": "cce320d33ea015416c458f25b27a8b7049d42114b8dfe4f8715f75ea8c27122a"
+    },
+    {
+      "file": "web/smart-mutawwif-logo.png",
+      "bytes": 64124,
+      "sha256": "dc4b2b48f5a453b73e4074528e4e2292b72d331a83f33814bba3f33b85632b08"
+    },
+    {
+      "file": "web/smart-mutawwif-symbol.png",
+      "bytes": 7599,
+      "sha256": "64281b254ae76afcd29887e1db487d54878df8de830f0e8761f24a2a680f5794"
+    },
+    {
+      "file": "web/smart-mutawwif-symbol.svg",
+      "bytes": 1762,
+      "sha256": "a4d8d144a386559809bb6fcbebe3fa8a014c6ae799c658961e014d57002bf972"
+    },
+    {
+      "file": "الفكرة_والمصادر.md",
+      "bytes": 7023,
+      "sha256": "62cb349c41a8ee7f7d8a363053752477069e3dcf96ec535255929b5bbf593311"
+    },
+    {
+      "file": "دليل_الاستخدام.md",
+      "bytes": 6048,
+      "sha256": "de1e7b07030d5957cf77a98a0b85c5734217ccfd63524e47260a2bd9039ed13a"
+    }
+  ],
+  "checks": {
+    "svg_android_paths_match": true,
+    "arabic_lines_correct": true,
+    "svg_contains_real_paths": true,
+    "local_links_exist": true,
+    "phone_apk_built": false
+  }
+}

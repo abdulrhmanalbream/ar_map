@@ -10,8 +10,8 @@ android {
         applicationId = "com.sarab.vision"
         minSdk = 30
         targetSdk = 35
-        versionCode = 7
-        versionName = "3.0.1-watch-preview"
+        versionCode = 10
+        versionName = "3.1.1-religious-watch-preview"
     }
     buildTypes {
         debug { isMinifyEnabled = false }

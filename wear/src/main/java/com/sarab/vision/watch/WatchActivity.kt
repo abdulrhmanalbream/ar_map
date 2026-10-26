@@ -8,9 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -23,16 +24,23 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.sarab.vision.R
 import com.sarab.vision.wear.shared.WatchAlert
 
-/** Large native touch targets and rotary scrolling stay usable on a round Watch 8 Classic. */
+/**
+ * Hedayah watch: a quiet forest canvas, the original mark, ivory Arabic type and one gold action.
+ * The ritual and recorded count lead; group details follow below the thumb-sized controls.
+ * Native scrolling and rotary input keep the centre chord of a round Watch 8 Classic usable.
+ */
 class WatchActivity : Activity() {
     private lateinit var repository: WatchRepository
     private lateinit var scroll: ScrollView
@@ -42,9 +50,14 @@ class WatchActivity : Activity() {
     private var receiverRegistered = false
     private var screenKey = ""
     private val deferredAlerts = mutableSetOf<String>()
-    private val accent = Color.rgb(105, 232, 215)
-    private val ink = Color.rgb(7, 19, 21)
-    private val muted = Color.rgb(186, 208, 207)
+    private val accent = Color.rgb(180, 154, 91)
+    private val ink = Color.rgb(8, 27, 22)
+    private val ivory = Color.rgb(245, 243, 235)
+    private val surface = Color.rgb(19, 63, 53)
+    private val outline = Color.rgb(65, 91, 75)
+    private val muted = Color.rgb(193, 204, 193)
+    private val regular by lazy { resources.getFont(R.font.hedaya_regular) }
+    private val semibold by lazy { resources.getFont(R.font.hedaya_semibold) }
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { render() }
     }
@@ -64,18 +77,24 @@ class WatchActivity : Activity() {
             setBackgroundColor(ink)
             isFillViewport = true
             isVerticalScrollBarEnabled = true
-            clipToPadding = false
+            clipToPadding = true
             isFocusableInTouchMode = true
+            setOnApplyWindowInsetsListener { view, insets ->
+                val safe = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
         }
         column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             // Round corners are unavailable touch area; the content remains inside the centre chord.
-            setPadding(dp(24), dp(22), dp(24), dp(34))
+            setPadding(dp(24), dp(18), dp(24), dp(38))
         }
         scroll.addView(column, FrameLayout.LayoutParams(-1, -2))
         setContentView(scroll)
+        scroll.requestApplyInsets()
         scroll.setOnGenericMotionListener { _, event ->
             if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)) {
                 val pixels = -event.getAxisValue(MotionEvent.AXIS_SCROLL) * ViewConfiguration.get(this).scaledVerticalScrollFactor
@@ -139,12 +158,12 @@ class WatchActivity : Activity() {
             return
         }
         setTurnScreenOn(false)
-        label(if (repository.connected) "الجوال متصل" else "العدّ يعمل دون اتصال", 11f, muted)
+        brandHeader()
         val modes = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        modes.addView(modeButton("الطواف", "tawaf", lap.mode == "tawaf"), LinearLayout.LayoutParams(0, dp(40), 1f))
-        modes.addView(modeButton("السعي", "sai", lap.mode == "sai"), LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(6) })
-        column.addView(modes, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(6) })
-        label("${arabic(lap.count)} / ٧", 43f, accent, bold = true).apply {
+        modes.addView(modeButton("الطواف", "tawaf", lap.mode == "tawaf"), LinearLayout.LayoutParams(0, dp(48), 1f))
+        modes.addView(modeButton("السعي", "sai", lap.mode == "sai"), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+        column.addView(modes, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        label("${arabic(lap.count)} من ٧", 38f, ivory, bold = true).apply {
             contentDescription = "${if (lap.mode == "tawaf") "الطواف" else "السعي"}: ${lap.count} من سبعة، عدّ يدوي"
             setPadding(0, dp(2), 0, 0)
         }
@@ -160,16 +179,18 @@ class WatchActivity : Activity() {
         }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(makeButton("تراجع", false, lap.count > 0) { repository.undo(); render(force = true) },
-            LinearLayout.LayoutParams(0, dp(46), 1f))
+            LinearLayout.LayoutParams(0, dp(48), 1f))
         actions.addView(makeButton("مساعدة", false, true) { confirmHelp() },
-            LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(6) })
-        column.addView(actions, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
+            LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+        column.addView(actions, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         if (alerts.isNotEmpty()) button("التنبيهات غير المؤكدة (${arabic(alerts.size)})") {
             deferredAlerts.clear()
             render(force = true)
         }
         if (repository.helpStatus.isNotEmpty()) label(repository.helpStatus, 12f, accent, top = 10)
-        if (repository.groupName.isNotEmpty()) label(repository.groupName, 12f, Color.WHITE, top = 10)
+        divider()
+        label(if (repository.connected) "الجوال متصل" else "العدّ يعمل دون اتصال", 12f, ivory, bold = true)
+        if (repository.groupName.isNotEmpty()) label(repository.groupName, 12f, accent, top = 6)
         label(when {
             !repository.connected -> "افتح المطوف الذكي على الجوال المتصل؛ تُرسل الطلبات المحفوظة عند عودة الاتصال."
             !repository.cloudConnected -> "الجوال متصل؛ اتصال المجموعة غير متاح الآن."
@@ -178,7 +199,7 @@ class WatchActivity : Activity() {
         if (!notificationsAllowed) button("تفعيل تنبيهات المجموعة") {
             startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
         }
-        button("بدء عدّ جديد") {
+        button("بدء عدّ جديد", quiet = true) {
             AlertDialog.Builder(this).setTitle("تصفير ${if (lap.mode == "tawaf") "الطواف" else "السعي"}؟")
                 .setMessage("المسجّل الآن ${arabic(lap.count)} من ٧. سيبدأ عدّ جديد من الصفر.")
                 .setNegativeButton("إلغاء", null).setPositiveButton("ابدأ من صفر") { _, _ -> repository.reset(); render(force = true) }.show()
@@ -191,7 +212,8 @@ class WatchActivity : Activity() {
     private fun renderAlert(alert: WatchAlert, total: Int) {
         label(when (alert.kind) { "help" -> "طلب مساعدة"; "regroup" -> "تجمّع المجموعة"; else -> "تنبيه المجموعة" }, 18f, accent, true)
         if (alert.sourceName.isNotBlank()) label(alert.sourceName, 12f, muted, top = 6)
-        label(alert.message, 17f, Color.WHITE, top = 14)
+        divider()
+        label(alert.message, 17f, ivory)
         if (total > 1) label("${arabic(total)} تنبيهات بانتظار التأكيد", 11f, muted, top = 10)
         button("وصلني التنبيه", primary = true) {
             if (!repository.acknowledge(alert.id)) toast("تعذّر حفظ التأكيد. حاول بعد اتصال الجوال.")
@@ -216,26 +238,68 @@ class WatchActivity : Activity() {
             }.show()
     }
 
-    private fun modeButton(text: String, mode: String, selected: Boolean) = makeButton(text, selected, true) {
+    private fun modeButton(text: String, mode: String, selected: Boolean) = makeButton(text, false, true) {
         repository.chooseMode(mode); render(force = true)
-    }.apply { isSelected = selected; contentDescription = "$text، ${if (selected) "محدد" else "تغيير نوع العدّ"}" }
+    }.apply {
+        isSelected = selected
+        contentDescription = "$text، ${if (selected) "محدد" else "تغيير نوع العدّ"}"
+        setTextColor(if (selected) ivory else muted)
+        background = controlBackground(if (selected) surface else ink, if (selected) accent else outline)
+        typeface = if (selected) semibold else regular
+    }
 
-    private fun button(text: String, primary: Boolean = false, enabled: Boolean = true, action: () -> Unit) {
-        column.addView(makeButton(text, primary, enabled, action), LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(8) })
+    private fun brandHeader() {
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        header.addView(ImageView(this).apply {
+            setImageResource(R.drawable.hedayathon_logo)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "هداية ثون"
+        }, LinearLayout.LayoutParams(dp(34), dp(24)).apply { marginEnd = dp(6) })
+        header.addView(TextView(this).apply {
+            text = "المطوف الذكي"
+            textSize = 12f
+            typeface = semibold
+            setTextColor(ivory)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(-2, -2))
+        column.addView(header, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    private fun divider() {
+        column.addView(View(this).apply { setBackgroundColor(outline) },
+            LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(18); bottomMargin = dp(14) })
+    }
+
+    private fun button(text: String, primary: Boolean = false, enabled: Boolean = true, quiet: Boolean = false, action: () -> Unit) {
+        val control = makeButton(text, primary, enabled, action)
+        if (quiet) control.background = controlBackground(ink, outline)
+        column.addView(control, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
     }
     private fun makeButton(text: String, primary: Boolean, enabled: Boolean, action: () -> Unit) = Button(this).apply {
         this.text = text
         textSize = 13f
         isAllCaps = false
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        setTextColor(if (primary) ink else Color.WHITE)
-        background = GradientDrawable().apply { cornerRadius = dp(23).toFloat(); setColor(if (primary) accent else Color.rgb(27, 49, 52)) }
-        minHeight = dp(44)
+        typeface = semibold
+        setTextColor(if (primary) ink else ivory)
+        background = controlBackground(if (primary) accent else surface)
+        minHeight = dp(48)
         minimumWidth = 0
         setPadding(dp(7), 0, dp(7), 0)
         isEnabled = enabled
-        alpha = if (enabled) 1f else 0.5f
+        alpha = if (enabled) 1f else 0.55f
         setOnClickListener { action() }
+    }
+    private fun controlBackground(fill: Int, stroke: Int? = null): RippleDrawable {
+        val shape = GradientDrawable().apply {
+            cornerRadius = dp(24).toFloat()
+            setColor(fill)
+            stroke?.let { setStroke(dp(1), it) }
+        }
+        return RippleDrawable(ColorStateList.valueOf(Color.argb(55, 245, 243, 235)), shape, null)
     }
     private fun label(text: String, size: Float, color: Int, bold: Boolean = false, top: Int = 0) = TextView(this).apply {
         this.text = text
@@ -243,7 +307,7 @@ class WatchActivity : Activity() {
         setTextColor(color)
         gravity = Gravity.CENTER
         textDirection = View.TEXT_DIRECTION_LOCALE
-        typeface = Typeface.create(if (bold) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
+        typeface = if (bold) semibold else regular
         includeFontPadding = false
         column.addView(this, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) })
     }

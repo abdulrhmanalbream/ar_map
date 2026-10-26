@@ -1,5 +1,7 @@
 package com.sarab.vision
 
+import com.sarab.vision.ui.HedayahTheme
+
 import android.app.Presentation
 import android.content.Context
 import android.graphics.drawable.ColorDrawable
@@ -165,6 +167,7 @@ private class GlassesHudPresentation(
             setViewTreeLifecycleOwner(activity)
             setViewTreeSavedStateRegistryOwner(activity)
             setContent {
+            HedayahTheme(camera = true) {
                 GlassesHud(
                     guidance = campus.guidance,
                     targetName = campus.target?.name,
@@ -172,7 +175,8 @@ private class GlassesHudPresentation(
                     needsCalibration = campus.compassNeedsCalibration,
                     menu = hudMenuView(menu(), campus.fix?.position)
                 )
-            }
+                }
+        }
         }
         setContentView(view)
     }

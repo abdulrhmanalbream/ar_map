@@ -1,0 +1,40 @@
+{
+  "assetType": "Native SVG and XML implementation of the selected generated concept",
+  "title": "المطوف الذكي",
+  "slogan": "رفيقٌ وفيّ، وسندٌ قويّ.",
+  "checks": [
+    {
+      "file": "png/smart-mutawwif-logo.png",
+      "width": 1600,
+      "height": 1200,
+      "hasAlpha": true,
+      "transparentPixels": 1788120,
+      "opaquePixels": 116944
+    },
+    {
+      "file": "png/smart-mutawwif-logo-3200.png",
+      "width": 3200,
+      "height": 2400,
+      "hasAlpha": true,
+      "transparentPixels": 7168123,
+      "opaquePixels": 482070
+    },
+    {
+      "file": "png/symbol/smart-mutawwif-symbol-512.png",
+      "width": 512,
+      "height": 512,
+      "hasAlpha": true,
+      "transparentPixels": 214963,
+      "opaquePixels": 41247
+    },
+    {
+      "file": "png/smart-mutawwif-adaptive-foreground.png",
+      "width": 432,
+      "height": 432,
+      "hasAlpha": true,
+      "transparentPixels": 169895,
+      "opaquePixels": 14333
+    }
+  ],
+  "renderer": "sharp 0.35.4"
+}

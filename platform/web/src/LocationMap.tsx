@@ -98,7 +98,7 @@ export default function LocationMap({
       ) {
         L.circle(point, {
           radius: Math.min(location.accuracyM, 100_000),
-          color: "#18675a",
+          color: "#133f35",
           weight: 1,
           fillOpacity: 0.08,
           interactive: false,

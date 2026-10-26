@@ -75,15 +75,20 @@ data class VoiceState(
  * Returns the updated state and the text to speak, or null for silence.
  * [urgent] bypasses the minimum gap -- arrival and ambiguity must not wait
  * six seconds while the user walks past the door.
+ * A routine sensor update must also wait for the entire current spoken phrase:
+ * a direction plus distance recording can exceed the six-second minimum gap.
+ * Deferral keeps state unchanged so a later tick can speak the current instruction.
  */
 fun nextVoiceCue(
     state: VoiceState,
     cue: String?,
     urgent: Boolean,
-    nowMs: Long
+    nowMs: Long,
+    playbackBusy: Boolean = false,
 ): Pair<VoiceState, String?> {
     if (cue == null) return state to null
     if (cue == state.lastText) return state to null
+    if (!urgent && playbackBusy) return state to null
     if (!urgent && nowMs - state.lastAtMs < VOICE_MIN_GAP_MS) return state to null
     return VoiceState(cue, nowMs) to cue
 }

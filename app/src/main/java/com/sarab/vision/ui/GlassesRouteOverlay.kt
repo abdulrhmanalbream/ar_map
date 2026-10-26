@@ -34,7 +34,7 @@ import com.sarab.vision.core.pointAlongGlassesRoute
 import kotlin.math.abs
 import kotlin.math.atan2
 
-private val GlassesRouteAccent = Color(0xFF69E8D7)
+private val GlassesRouteAccent = Hedayah.HudGold
 
 /** Camera and overlay share the full viewport and the same centred source-image crop. */
 @Composable
@@ -86,7 +86,7 @@ fun GlassesRouteOverlay(
                     }
                     val width = (48.0 / arrow.tip.depthMeters).coerceIn(2.5, 5.0).toFloat().dp.toPx()
                     val stroke = Stroke(width, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                    drawPath(path, Color(0xD9102028), style = Stroke(width + 1.5.dp.toPx(),
+                    drawPath(path, Hedayah.Hud.copy(alpha = 0.85f), style = Stroke(width + 1.5.dp.toPx(),
                         cap = StrokeCap.Round, join = StrokeJoin.Round))
                     drawPath(path, GlassesRouteAccent, style = stroke)
                 }
@@ -96,7 +96,7 @@ fun GlassesRouteOverlay(
         // One maneuver cue survives when the path is outside the view or no route exists.
         if (arrows.isEmpty() || abs(direction) > 35.0) Row(
             Modifier.align(Alignment.TopCenter).padding(top = 76.dp, start = 16.dp, end = 16.dp)
-                .background(Color(0xDB102028), RoundedCornerShape(12.dp))
+                .background(Hedayah.Hud.copy(alpha = 0.86f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

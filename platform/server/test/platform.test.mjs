@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createPlatform } from '../src/app.mjs';
 import { hashPassword, digest } from '../src/security.mjs';
+import { DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME, ensureDefaultGroup } from '../src/default-group.mjs';
 
 const PASSWORD = 'Fixture-only-B7!n8R4v';
 const START = Date.parse('2026-09-08T12:00:00.000Z');
@@ -111,6 +112,136 @@ test('enrollment expires, is capped at twenty uses, and stores only a digest', a
   const expiring = await f.code(g.id);
   f.advance(86400001);
   assert.equal((await f.api('/api/v1/devices/enroll', { method: 'POST', body: { code: expiring, name: 'Expired', language: 'ar' } })).status, 400);
+});
+
+test('public enrollment joins one default group, issues separate device sessions and leaves consent off', async t => {
+  const f = await fixture(t);
+  const privateGroup = await f.group('Private invitation group');
+  const privateMember = await f.enroll(privateGroup.id);
+  const join = name => f.api('/api/v1/devices/enroll-default', { method: 'POST', body: { name, language: 'ur-PK' } });
+  const first = await join('First visitor');
+  const second = await join('Second visitor');
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  assert.deepEqual(first.body.group, { id: DEFAULT_GROUP_ID, name: DEFAULT_GROUP_NAME });
+  assert.equal(second.body.device.groupId, DEFAULT_GROUP_ID);
+  assert.notEqual(first.body.token, second.body.token);
+  assert.notEqual(first.body.device.id, second.body.device.id);
+  assert.equal((await f.api('/api/v1/device/profile', { token: privateMember.token })).body.group.id, privateGroup.id);
+  const listing = (await f.api('/api/v1/devices', { token: f.adminToken })).body.devices;
+  for (const id of [first.body.device.id, second.body.device.id]) {
+    const member = listing.find(item => item.id === id);
+    assert.equal(member.sharingEnabled, false);
+    assert.equal(member.location, null);
+    assert.equal(member.status, 'offline');
+  }
+  const groups = (await f.api('/api/v1/groups', { token: f.adminToken })).body.groups;
+  assert.equal(groups.filter(item => item.isDefault).length, 1);
+  assert.equal(groups.find(item => item.isDefault).memberCount, 2);
+  assert.equal((await f.api('/api/v1/groups', { token: first.body.token })).status, 403);
+  assert.equal((await f.api('/api/v1/devices', { token: first.body.token })).status, 403);
+  assert.equal((await f.api('/api/v1/groups')).status, 401);
+  assert.equal(ensureDefaultGroup(f.db, 'test-guide', f.now).id, DEFAULT_GROUP_ID);
+  assert.equal(f.db.prepare('SELECT COUNT(*) count FROM groups WHERE id=?').get(DEFAULT_GROUP_ID).count, 1);
+});
+
+test('public enrollment rejects identity/consent overrides and shares invitation rate limits', async t => {
+  const f = await fixture(t);
+  for (const body of [ { name: '', language: 'ar' }, { name: 'x', language: 'ar', groupId: 'injected' },
+    { name: 'x', language: 'ar', sharingEnabled: true }, { name: 'x', language: 'ar', token: 'injected' } ]) {
+    assert.equal((await f.api('/api/v1/devices/enroll-default', { method: 'POST', body })).status, 400);
+  }
+  assert.equal(f.db.prepare('SELECT COUNT(*) count FROM devices').get().count, 0);
+  for (let i = 0; i < 26; i++) {
+    assert.equal((await f.api('/api/v1/devices/enroll-default', { method: 'POST', body: { name: `Visitor ${i}`, language: 'ar' } })).status, 201);
+  }
+  assert.equal((await f.api('/api/v1/devices/enroll-default', { method: 'POST', body: { name: 'Limited', language: 'ar' } })).status, 429);
+  assert.equal((await f.api('/api/v1/devices/enroll', { method: 'POST', body: { code: 'INVALIDCODE', name: 'Limited', language: 'ar' } })).status, 429);
+});
+
+test('guest dashboard is a public allowlisted aggregate; protected APIs and mutations stay protected', async t => {
+  const f = await fixture(t);
+  const sessionCount = () => f.db.prepare('SELECT COUNT(*) count FROM sessions').get().count;
+  const before = sessionCount();
+  const snapshot = await f.api('/api/v1/public/dashboard');
+  assert.equal(snapshot.status, 200);
+  assert.equal(snapshot.headers.get('cache-control'), 'no-store');
+  assert.equal(snapshot.headers.get('access-control-allow-origin'), null);
+  assert.deepEqual(snapshot.body, { updatedAt: new Date(f.now()).toISOString(),
+    group: { name: DEFAULT_GROUP_NAME, memberCount: 0 },
+    counts: { active: 0, offline: 0, needsHelp: 0, paused: 0, sharing: 0, eyeConnected: 0, watchConnected: 0 },
+    health: { status: 'ok', aiConfigured: false, aiProvider: 'local' } });
+  assert.deepEqual((await f.api('/api/v1/public/dashboard', { token: f.adminToken })).body, snapshot.body);
+  for (const path of ['/devices', '/groups', '/alerts']) assert.equal((await f.api('/api/v1' + path)).status, 401);
+  assert.equal((await f.api('/api/v1/public/dashboard', { method: 'POST', body: {} })).status, 401);
+  assert.equal((await f.api('/api/v1/public/dashboard', { method: 'POST', body: {}, token: f.adminToken })).status, 404);
+  assert.equal((await f.api('/api/v1/public/dashboard?groupId=private')).status, 400);
+  assert.equal(sessionCount(), before);
+});
+
+test('guest totals isolate public members, omit revoked/other groups, and honor online boundaries', async t => {
+  const f = await fixture(t, { geminiApiKey: 'fake-private-provider-key' });
+  const members = [];
+  for (let i = 0; i < 7; i++) {
+    const response = await f.api('/api/v1/devices/enroll-default', { method: 'POST', body: { name: `private-person-${i}`, language: 'ar' } });
+    assert.equal(response.status, 201);
+    members.push(response.body.device.id);
+  }
+  const update = f.db.prepare(`UPDATE devices SET last_seen_at=?,status=?,sharing_enabled=?,camera_connected=?,watch_connected=?,
+    location_json=?,destination_name=? WHERE id=?`);
+  const cases = [
+    [0, 'active', 1, 1, 1], [100, 'paused', 0, 1, 0], [500, 'needs_help', 0, 0, 0],
+    [90001, 'needs_help', 1, 1, 1], [90000, 'paused', 0, 0, 0], [null, 'paused', 0, 1, 1], [0, 'active', 1, 1, 1],
+  ];
+  for (let i = 0; i < cases.length; i++) {
+    const [age, status, sharing, eye, watch] = cases[i];
+    update.run(age === null ? null : new Date(f.now() - age).toISOString(), status, sharing, eye, watch,
+      JSON.stringify({ lat: 24.1234567, lng: 39.7654321 }), 'private-destination', members[i]);
+  }
+  f.db.prepare('UPDATE devices SET revoked_at=? WHERE id=?').run(new Date(f.now()).toISOString(), members[6]);
+  const otherGroup = await f.group('private-group-title');
+  const outsider = await f.enroll(otherGroup.id, 'private-outsider');
+  update.run(new Date(f.now()).toISOString(), 'active', 1, 1, 1, null, 'private-place', outsider.device.id);
+  const snapshot = await f.api('/api/v1/public/dashboard');
+  assert.deepEqual(snapshot.body, { updatedAt: new Date(f.now()).toISOString(),
+    group: { name: DEFAULT_GROUP_NAME, memberCount: 6 },
+    counts: { active: 1, offline: 2, needsHelp: 1, paused: 2, sharing: 2, eyeConnected: 2, watchConnected: 1 },
+    health: { status: 'ok', aiConfigured: true, aiProvider: 'gemini' } });
+  const body = JSON.stringify(snapshot.body);
+  for (const secret of [...members, outsider.device.id, otherGroup.id, 'private-person', 'private-group-title', 'private-destination', '24.1234567', 'fake-private-provider-key'])
+    assert.ok(!body.includes(secret), 'Public aggregate must not include individual or private data');
+});
+
+test('guest read requests are rate limited independently of enrollment and recover', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 180; i++) assert.equal((await f.api('/api/v1/public/dashboard')).status, 200);
+  assert.equal((await f.api('/api/v1/public/dashboard')).status, 429);
+  assert.equal((await f.api('/api/v1/devices/enroll-default', { method: 'POST', body: { name: 'Visitor', language: 'ar' } })).status, 201);
+  f.advance(60000);
+  assert.equal((await f.api('/api/v1/public/dashboard')).status, 200);
+});
+
+test('default group ownership stays explicit and a missing configured owner disables public enrollment', async t => {
+  const f = await fixture(t);
+  assert.equal(ensureDefaultGroup(f.db, 'not-the-owner'), null);
+  const otherId = randomUUID();
+  f.db.prepare('INSERT INTO users(id,username,name,role,password_hash,created_at) VALUES(?,?,?,?,?,?)')
+    .run(otherId, 'other-default-guide', 'Other', 'admin', await hashPassword(PASSWORD), new Date(f.now()).toISOString());
+  assert.equal(ensureDefaultGroup(f.db), null);
+  assert.equal(ensureDefaultGroup(f.db, 'other-default-guide'), null);
+  assert.equal(ensureDefaultGroup(f.db, 'TEST-GUIDE').id, DEFAULT_GROUP_ID);
+  const second = await createPlatform({ dataDir: f.directory, adminUsername: 'missing-owner' });
+  second.server.listen(0, '127.0.0.1');
+  await once(second.server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${second.server.address().port}/api/v1/devices/enroll-default`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Visitor', language: 'ar' }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'DEFAULT_GROUP_UNAVAILABLE');
+    const publicRead = await fetch(`http://127.0.0.1:${second.server.address().port}/api/v1/public/dashboard`);
+    assert.equal(publicRead.status, 503);
+  } finally { await second.close(); }
 });
 
 test('latest location is opt-in, validates coordinates, rejects reordering and clears immediately', async t => {
@@ -280,5 +411,6 @@ test('data and sessions survive server restart without bootstrap credentials', a
   const reopened = await createPlatform({ dataDir: directory });
   t.after(async () => { await reopened.close(); await rm(directory, { recursive: true, force: true }); });
   assert.equal(reopened.db.prepare('SELECT name FROM groups WHERE id=?').get(id).name, 'Persistent group');
+  assert.equal(reopened.db.prepare('SELECT name FROM groups WHERE id=?').get(DEFAULT_GROUP_ID).name, DEFAULT_GROUP_NAME);
   assert.ok((await readFile(join(directory, 'sarab.sqlite'))).length > 0);
 });

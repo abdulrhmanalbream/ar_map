@@ -32,7 +32,7 @@ await fs.mkdir(screenshots, { recursive: true });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.stack || error.message));
 try {
-  await page.goto(base);
+  await page.goto(new URL('/dashboard/admin', base).href);
   await page.getByRole("heading", { name: "أهلًا بعودتك" }).waitFor();
   await page.screenshot({
     path: path.join(screenshots, "login-desktop.png"),
@@ -108,6 +108,15 @@ try {
     .first()
     .click({ timeout: 15_000 });
   await page.getByRole("heading", { name: memberName }).waitFor();
+  await page.getByTitle(memberName, { exact: true }).waitFor();
+  await page.waitForFunction(
+    () => {
+      const tiles = [...document.querySelectorAll(".leaflet-tile")];
+      return tiles.length > 0 && tiles.every(tile => tile.complete && tile.naturalWidth > 0);
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
   await page.screenshot({
     path: path.join(screenshots, "dashboard-device-desktop.png"),
     fullPage: true,

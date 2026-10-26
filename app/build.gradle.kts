@@ -14,8 +14,8 @@ android {
         // mid-range devices in the field.
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "3.0.1-companion-preview"
+        versionCode = 22
+        versionName = "3.3.6-navigation-fix"
 
         // NOTE: no ndk.abiFilters here. The ABI restriction lives in the
         // `splits` block below, and setting both is a configuration error.

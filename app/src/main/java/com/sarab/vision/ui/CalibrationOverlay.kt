@@ -33,9 +33,9 @@ import androidx.compose.ui.unit.sp
 import com.sarab.vision.core.CalibrationState
 import com.sarab.vision.core.CalibrationStep
 
-private val Ink = Color(0xFF0B1520)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val Ink = Hedayah.Hud
+private val Accent = Hedayah.HudGold
+private val Muted = Hedayah.HudMuted
 
 /**
  * The guided start-up overlay.
@@ -110,7 +110,7 @@ fun CalibrationOverlay(
                 color = Muted,
                 fontSize = 13.sp,
                 modifier = Modifier
-                    .background(Color(0xFF1B2836), RoundedCornerShape(12.dp))
+                    .background(Hedayah.HudRaised, RoundedCornerShape(12.dp))
                     .clickable(onClick = onSkip)
                     .padding(horizontal = 22.dp, vertical = 11.dp)
             )

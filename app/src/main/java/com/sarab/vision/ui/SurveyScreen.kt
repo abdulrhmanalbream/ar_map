@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -51,13 +53,13 @@ import com.sarab.vision.data.ImageImporter
 import java.io.File
 import kotlin.math.roundToInt
 
-private val Bg = Color(0xFF0D1B2A)
-private val Panel = Color(0xF2141C26)
-private val Accent = Color(0xFF4FC3F7)
-private val Good = Color(0xFF66D9AF)
-private val Warn = Color(0xFFFFB300)
-private val Bad = Color(0xFFEF5350)
-private val Muted = Color(0xFF9FB3C8)
+private val Bg = Hedayah.Ivory
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Good = Hedayah.Good
+private val Warn = Hedayah.DarkGold
+private val Bad = Hedayah.Error
+private val Muted = Hedayah.Muted
 
 /** Accuracy at or below this is good enough to record a landmark. */
 private const val GOOD_ACCURACY_M = 10f
@@ -115,9 +117,12 @@ fun SurveyScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Bg)
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
+        HedayahMasthead(compact = true)
+        Spacer(Modifier.height(24.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
@@ -125,7 +130,7 @@ fun SurveyScreen(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "إضافة معلم",
-                    color = Color.White,
+                    color = Hedayah.Ink,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -141,7 +146,8 @@ fun SurveyScreen(
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
+                    .background(Hedayah.Soft, RoundedCornerShape(10.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onExit)
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             )
@@ -180,8 +186,9 @@ fun SurveyScreen(
                         color = Muted,
                         fontSize = 12.sp,
                         modifier = Modifier
-                            .background(Color(0xFF243244), RoundedCornerShape(10.dp))
-                            .clickable(onClick = onClearManualPosition)
+                            .background(Hedayah.Soft, RoundedCornerShape(10.dp))
+                            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClearManualPosition)
                             .padding(horizontal = 12.dp, vertical = 7.dp)
                     )
                 }
@@ -273,6 +280,7 @@ fun SurveyScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Accent, RoundedCornerShape(12.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onPickLocation)
                     .padding(vertical = 13.dp)
             )
@@ -300,7 +308,8 @@ fun SurveyScreen(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier
-                            .background(Color(0x33FFB300), RoundedCornerShape(20.dp))
+                            .background(Hedayah.DarkGold.copy(alpha = 0x33 / 255f), RoundedCornerShape(20.dp))
+                            .heightIn(min = 48.dp)
                             .clickable {
                                 name = t.name
                                 detail = t.detail
@@ -344,10 +353,11 @@ fun SurveyScreen(
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     modifier = Modifier
                         .background(
-                            if (selected) Accent else Color(0xFF1B2836),
+                            if (selected) Accent else Hedayah.Soft,
                             RoundedCornerShape(20.dp)
                         )
-                        .clickable { category = c }
+                        .heightIn(min = 48.dp)
+                            .clickable { category = c }
                         .padding(horizontal = 14.dp, vertical = 9.dp)
                 )
             }
@@ -371,7 +381,7 @@ fun SurveyScreen(
         // ---- Photos -------------------------------------------------------
         Text(
             "الصور ($pendingPhotoCount)",
-            color = Color.White,
+            color = Hedayah.Ink,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium
         )
@@ -409,7 +419,7 @@ fun SurveyScreen(
                         Box(
                             modifier = Modifier
                                 .size(88.dp)
-                                .background(Color(0xFF16202C), RoundedCornerShape(12.dp))
+                                .background(Hedayah.Paper, RoundedCornerShape(12.dp))
                         ) {
                             if (bitmap != null) {
                                 Image(
@@ -446,7 +456,7 @@ fun SurveyScreen(
             colors = ButtonDefaults.buttonColors(
                 containerColor = Accent,
                 contentColor = Bg,
-                disabledContainerColor = Color(0xFF1B2836),
+                disabledContainerColor = Hedayah.Soft,
                 disabledContentColor = Muted
             ),
             shape = RoundedCornerShape(14.dp),
@@ -475,7 +485,7 @@ fun SurveyScreen(
         ) {
             Text(
                 "المعالم المحفوظة (${capturedLandmarks.size})",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f)
@@ -486,8 +496,9 @@ fun SurveyScreen(
                     color = Accent,
                     fontSize = 14.sp,
                     modifier = Modifier
-                        .background(Color(0xFF1B2836), RoundedCornerShape(10.dp))
-                        .clickable(onClick = onExport)
+                        .background(Hedayah.Soft, RoundedCornerShape(10.dp))
+                        .heightIn(min = 48.dp)
+                    .clickable(onClick = onExport)
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
@@ -508,12 +519,12 @@ fun SurveyScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 5.dp)
-                        .background(Color(0xFF16202C), RoundedCornerShape(12.dp))
+                        .background(Hedayah.Paper, RoundedCornerShape(12.dp))
                         .padding(12.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(48.dp)
                             .background(Accent.copy(alpha = 0.18f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
@@ -521,7 +532,7 @@ fun SurveyScreen(
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(lm.name, color = Color.White, fontSize = 15.sp)
+                        Text(lm.name, color = Hedayah.Ink, fontSize = 15.sp)
                         Text(
                             buildString {
                                 append(lm.category.labelAr)
@@ -548,12 +559,13 @@ fun SurveyScreen(
 private fun PhotoButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         text = label,
-        color = Color.White,
+        color = Hedayah.Ink,
         fontSize = 14.sp,
         fontWeight = FontWeight.Medium,
         modifier = modifier
-            .background(Color(0xFF243244), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .background(Hedayah.Soft, RoundedCornerShape(12.dp))
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(vertical = 14.dp),
         textAlign = androidx.compose.ui.text.style.TextAlign.Center
     )
@@ -561,14 +573,14 @@ private fun PhotoButton(label: String, modifier: Modifier = Modifier, onClick: (
 
 @Composable
 private fun fieldColours() = TextFieldDefaults.colors(
-    focusedContainerColor = Color(0xFF16202C),
-    unfocusedContainerColor = Color(0xFF16202C),
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
+    focusedContainerColor = Hedayah.Paper,
+    unfocusedContainerColor = Hedayah.Paper,
+    focusedTextColor = Hedayah.Ink,
+    unfocusedTextColor = Hedayah.Ink,
     focusedLabelColor = Accent,
     unfocusedLabelColor = Muted,
     focusedIndicatorColor = Accent,
-    unfocusedIndicatorColor = Color(0xFF243244),
+    unfocusedIndicatorColor = Hedayah.Soft,
     cursorColor = Accent
 )
 

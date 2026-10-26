@@ -35,10 +35,10 @@ import com.sarab.vision.core.TravelMode
 import com.sarab.vision.core.formatDistance
 import com.sarab.vision.core.routeSteps
 
-private val Panel = Color(0xF2101822)
-private val Ink = Color(0xFF0B1520)
-private val Accent = Color(0xFF2E9BFF)
-private val Muted = Color(0xFF9FB3C8)
+private val Panel = Hedayah.Paper
+private val Ink = Hedayah.Ivory
+private val Accent = Hedayah.Forest
+private val Muted = Hedayah.Muted
 
 /**
  * The route summary, in the shape every mapping app uses.
@@ -79,10 +79,11 @@ fun RouteCard(
                     modifier = Modifier
                         .weight(1f)
                         .background(
-                            if (selected) Accent else Color(0xFF1B2836),
+                            if (selected) Accent else Hedayah.Soft,
                             RoundedCornerShape(12.dp)
                         )
-                        .clickable { onModeChange(mode) }
+                        .heightIn(min = 48.dp)
+                            .clickable { onModeChange(mode) }
                         .padding(vertical = 11.dp)
                 )
             }
@@ -93,7 +94,7 @@ fun RouteCard(
         if (destinationName == null) {
             Text(
                 "اختر وجهة",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -112,14 +113,14 @@ fun RouteCard(
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             "${route.minutes}",
-                            color = Color(0xFF66D9AF),
+                            color = Hedayah.Good,
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "دقيقة",
-                            color = Color(0xFF66D9AF),
+                            color = Hedayah.Good,
                             fontSize = 14.sp,
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
@@ -134,7 +135,7 @@ fun RouteCard(
                 } else {
                     Text(
                         "لا يوجد مسار محسوب",
-                        color = Color(0xFFFFB300),
+                        color = Hedayah.DarkGold,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -142,7 +143,7 @@ fun RouteCard(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     destinationName,
-                    color = Color.White,
+                    color = Hedayah.Ink,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -153,8 +154,9 @@ fun RouteCard(
                 fontSize = 15.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .size(34.dp)
-                    .background(Color(0xFF1B2836), CircleShape)
+                    .size(48.dp)
+                    .background(Hedayah.Soft, CircleShape)
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onClear)
                     .padding(top = 7.dp)
             )
@@ -167,7 +169,7 @@ fun RouteCard(
             Text(
                 "خط مستقيم — لا توجد طرق مرسومة هنا بعد. استورد الطرق من " +
                     "OpenStreetMap أو ارسمها من وضع الأدوات.",
-                color = Color(0xFFFFB300),
+                color = Hedayah.DarkGold,
                 fontSize = 11.sp,
                 lineHeight = 16.sp
             )
@@ -185,6 +187,7 @@ fun RouteCard(
                 modifier = Modifier
                     .weight(1f)
                     .background(Accent, RoundedCornerShape(12.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onStartAr)
                     .padding(vertical = 12.dp)
             )
@@ -193,13 +196,14 @@ fun RouteCard(
             if (steps.isNotEmpty()) {
                 Text(
                     if (stepsOpen) "إخفاء الخطوات" else "الخطوات (${steps.size})",
-                    color = Color.White,
+                    color = Hedayah.Ink,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
-                        .background(Color(0xFF1B2836), RoundedCornerShape(12.dp))
-                        .clickable { stepsOpen = !stepsOpen }
+                        .background(Hedayah.Soft, RoundedCornerShape(12.dp))
+                        .heightIn(min = 48.dp)
+                            .clickable { stepsOpen = !stepsOpen }
                         .padding(vertical = 12.dp)
                 )
             }
@@ -224,7 +228,7 @@ fun RouteCard(
                         Box(
                             modifier = Modifier
                                 .size(26.dp)
-                                .background(Color(0xFF1B2836), CircleShape),
+                                .background(Hedayah.Soft, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text("${index + 1}", color = Accent, fontSize = 11.sp)
@@ -232,7 +236,7 @@ fun RouteCard(
                         Spacer(Modifier.width(10.dp))
                         Text(
                             step.instructionAr,
-                            color = Color.White,
+                            color = Hedayah.Ink,
                             fontSize = 13.sp,
                             modifier = Modifier.weight(1f)
                         )

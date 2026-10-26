@@ -40,11 +40,11 @@ import com.sarab.vision.core.Destination
 import com.sarab.vision.core.Fact
 import kotlin.math.roundToInt
 
-private val CardBg = Color(0xF2141C26)
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Muted = Color(0xFF9FB3C8)
-private val Divider = Color(0xFF243244)
+private val CardBg = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Amber = Hedayah.DarkGold
+private val Muted = Hedayah.Muted
+private val Divider = Hedayah.Soft
 
 /**
  * The destination detail sheet, shown when the user taps the 3D marker.
@@ -57,7 +57,7 @@ private val Divider = Color(0xFF243244)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PoiCard(
+private fun PoiCardContent(
     destination: Destination,
     remainingMeters: Float?,
     visible: Boolean,
@@ -73,7 +73,7 @@ fun PoiCard(
         Card(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = CardBg),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
@@ -97,7 +97,7 @@ fun PoiCard(
                     ) {
                         Text(
                             text = destination.name.take(1),
-                            color = Color(0xFF1B2430),
+                            color = Hedayah.Paper,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -108,7 +108,7 @@ fun PoiCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = destination.name,
-                            color = Color.White,
+                            color = Hedayah.Ink,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -126,7 +126,7 @@ fun PoiCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF18232F), RoundedCornerShape(14.dp))
+                        .background(Hedayah.Soft, RoundedCornerShape(14.dp))
                         .padding(vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
@@ -161,12 +161,12 @@ fun PoiCard(
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
-                                    .background(Color(0xFF66D9AF), CircleShape)
+                                    .background(Hedayah.Good, CircleShape)
                             )
                             Spacer(Modifier.width(10.dp))
                             Text(
                                 text = destination.hours,
-                                color = Color(0xFF66D9AF),
+                                color = Hedayah.Good,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -176,7 +176,7 @@ fun PoiCard(
 
                     Text(
                         text = destination.detail,
-                        color = Color(0xFFC7D3DF),
+                        color = Hedayah.Ink,
                         fontSize = 14.sp,
                         lineHeight = 21.sp
                     )
@@ -230,8 +230,8 @@ fun PoiCard(
                 Button(
                     onClick = onClose,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2A3A4D),
-                        contentColor = Color.White
+                        containerColor = Hedayah.Soft,
+                        contentColor = Hedayah.Ink
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -248,7 +248,7 @@ private fun SummaryStat(value: String, unit: String, highlight: Boolean = false)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
-            color = if (highlight) Accent else Color.White,
+            color = if (highlight) Accent else Hedayah.Ink,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -273,7 +273,7 @@ private fun FactCell(fact: Fact, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(3.dp))
         Text(
             text = fact.value,
-            color = Color.White,
+            color = Hedayah.Ink,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
         )
@@ -287,7 +287,7 @@ private fun AmenityChip(text: String) {
         color = Accent,
         fontSize = 12.sp,
         modifier = Modifier
-            .background(Color(0x334FC3F7), RoundedCornerShape(20.dp))
+            .background(Hedayah.Forest.copy(alpha = 0x33 / 255f), RoundedCornerShape(20.dp))
             .padding(horizontal = 12.dp, vertical = 6.dp)
     )
 }
@@ -314,4 +314,10 @@ fun PoiCardHost(
             Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+@Composable
+fun PoiCard(destination: Destination, remainingMeters: Float?, visible: Boolean,
+    onClose: () -> Unit, modifier: Modifier = Modifier) {
+    HedayahTheme { PoiCardContent(destination, remainingMeters, visible, onClose, modifier) }
 }

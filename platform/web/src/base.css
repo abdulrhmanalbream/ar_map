@@ -1,0 +1,13 @@
+@font-face { font-family: "IBM Plex Sans Arabic"; src: url("/fonts/IBMPlexSansArabic-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; src: url("/fonts/IBMPlexSansArabic-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; src: url("/fonts/IBMPlexSansArabic-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Sans Arabic"; src: url("/fonts/IBMPlexSansArabic-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+:root { font-family: "IBM Plex Sans Arabic", Tahoma, sans-serif; font-synthesis: none; color: #173f35; background: #f5f3eb; font-size: 16px; line-height: 1.65; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+.route-notice { width: min(100% - 40px, 620px); margin: 18vh auto; }
+.route-notice h1 { font-size: 2rem; line-height: 1.5; }
+.route-notice a { color: #133f35; text-underline-offset: 5px; display: inline-block; padding-block: 12px; }
+.route-notice a:focus-visible { outline: 3px solid #806b38; outline-offset: 4px; }

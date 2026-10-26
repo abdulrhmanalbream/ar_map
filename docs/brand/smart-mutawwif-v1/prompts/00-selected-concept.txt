@@ -1,0 +1,38 @@
+طريقة التنفيذ: أداة image_gen المدمجة، تحرير اتجاه الشعار السابق مع مرجع بصري.
+مرجع الرئاسة: https://hedayathon.com/assets/images/uploads/organizers/69699cb4cfda3.png
+المرجع المحلي: حزمة_عرض_سعي_تصميم_٢/المراجع/organizer-logo.png
+الفكرة: محراب المسار؛ قوس مستلهم من المرجع يتحول إلى مسار للطواف والإرشاد.
+السطر الأول: المطوف الذكي
+السطر الثاني: رفيقٌ وفيّ، وسندٌ قويّ.
+
+Use case: logo-brand, identity redesign.
+Redesign the identity presentation in IMAGE 1 using IMAGE 2 as the requested visual inspiration.
+
+IMAGE ROLES:
+Image 1 is the EDIT TARGET: the current ivory presentation containing a Sin-inspired mark, the word سعي, and a long single-line slogan. Replace the symbol and all this typography as instructed below. Retain the elegant centered presentation and its visibly filled warm ivory paper background.
+Image 2 is a STYLE / DESIGN REFERENCE ONLY: the official Presidency of Religious Affairs of the Two Holy Mosques identity, showing a pointed architectural arch, a sacred central form, green/gold colors, an open book/rays/minarets and Arabic calligraphy. Derive the new product's visual character from its arch geometry and dignified green/gold palette. Make a new simplified product emblem; do not place the full official seal or the reference's organization name in the result.
+
+New product name: "المطوف الذكي".
+Concept: "محراب المسار" — an architectural gateway that becomes a guided path around a stable center.
+Create a compact distinctive emblem centered above the type. A strong, elegant pointed arch inspired by the reference's elongated mosque gateway is the main silhouette. Its lower end transitions smoothly into a simple OPEN tawaf route around a small square negative-space center, linking the gateway and the route into one coherent shape. Use a restrained secondary muted-gold path or small gold terminal as the companion / guidance accent. The empty square center should subtly evoke the sacred center without detailed architecture. Keep the relationship between the arch and the inner pathway readable at small size. The reference must influence the refined arch proportions, the green/gold palette, and the quiet institutional Arabic tone.
+Reduce details: no book, no radiating sun rays, no minarets, no Saudi swords/palms, no tiny doorway engravings, no official calligraphic حرمين wordmark, no official department text. No generic map pin or shield. No complex concentric rings. This is a separate refined product logo inspired by the reference.
+
+VERY IMPORTANT TEXT CHANGE:
+Completely remove the word "سعي" from this image.
+Beneath the emblem, show EXACTLY TWO centered horizontal text lines. No other visible text.
+
+LINE 1, large dominant product wordmark, all on ONE unbroken line:
+"المطوف الذكي"
+
+LINE 2, separately below with a clear generous vertical gap, smaller yet comfortably readable, all on ONE unbroken line:
+"رفيقٌ وفيّ، وسندٌ قويّ."
+
+Do NOT merge the product name and the slogan onto the same line.
+Do NOT repeat "المطوف الذكي" within the second line.
+Do NOT add سعي, team credit, English, captions, numbering, descriptions, extra slogans or the official Presidency's name.
+Preserve the second line's exact spelling, BOTH halves, comma and final period. Arabic text must be beautiful, accurate, right-to-left, connected naturally, and fully legible. Typography: a confident modern Arabic wordmark with subtle calligraphic refinement echoing the reference's dignity, with clearly readable letterforms. Slogan in a lighter simple Arabic style, about 45 percent of the title's height, proper diacritics, no decorative swashes crossing the text.
+
+Presentation: ONE completed front-facing identity poster, a single logo lockup, 3:2 landscape, high resolution. The whole rectangular image is a fully painted light warm ivory paper surface #F6F5EF, visible edge-to-edge. Solid forest/jade green inspired by the reference, muted matte gold accents. Three colors maximum including the paper. Central emblem occupies upper central area, product name below, then slogan. Balanced scale, generous whitespace, clean straight margins. Flat precise vector-like ink shapes, elegant smooth curves, excellent readability.
+Keep the background fully filled and light. No black canvas, glow, blur, shadows, lighting effects, metallic gold, gradients, textures, bevels, embossing, frames, mockups, collages, construction grids or multiple variations.
+
+The result must clearly show the NEW emblem followed by the TWO requested lines, and visibly relate to the reference through the pointed architectural arch and the green/gold design language.

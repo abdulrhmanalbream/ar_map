@@ -1,0 +1,15 @@
+طريقة التنفيذ: أداة image_gen المدمجة، تعديل الصورة المختارة.
+
+Use case: precise-object-edit and background-extraction.
+Prepare this selected Arabic logo as a polished production PNG for a mobile application. This is a fidelity-preserving cleanup of the selected design, not a new concept.
+
+Preserve the existing exact design: the double pointed green architectural arch, the central small geometric green Kaaba-inspired shape, the open green and muted-gold tawaf path with its curved green tail, and the two Arabic text lines below it. Keep every contour, relative arrangement and alignment recognizable. Remove the uneven mottled ink texture and render all green areas as consistent flat solid #173E35; gold areas flat #B89B5C. Make joins, gaps and edges crisp and even, without fragile tiny slivers or jagged edges. No glow, blur, shadow, gradient or embossing.
+
+Keep EXACTLY these two text lines, centered with a clearly readable gap:
+Line 1, large: "المطوف الذكي"
+Line 2, smaller: "رفيقٌ وفيّ، وسندٌ قويّ."
+Keep every word and the approved slogan exactly; preserve natural Arabic joins and legible dots and diacritics. Do not add or remove words.
+
+Remove the ivory background COMPLETELY and output a real TRANSPARENT PNG with an alpha channel. Every outside background pixel and every open counter/hole must be genuinely transparent, not filled white, gray, black or a checkerboard. All foreground ink interiors must be fully opaque and strongly colored, not translucent. Keep clean antialiased edge pixels only. Do not add a glow fringe or colored shadow around the alpha edges.
+Centered full logo lockup, comfortably tight crop with 6% clear margin around the outermost ink, 3:2 landscape. High resolution.
+Do not change the icon into a different symbol. Do not show a poster, mockup, grid, multiple variants, colors chart, dark version or any new text. Produce only this one faithful polished transparent full logo asset.

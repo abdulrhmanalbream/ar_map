@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,12 +50,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.sarab.vision.map.MapStyles
 
-private val Panel = Color(0xE6121A24)
-private val Accent = Color(0xFF4FC3F7)
-private val Amber = Color(0xFFFFB300)
-private val Good = Color(0xFF66D9AF)
-private val Danger = Color(0xFFEF5350)
-private val Muted = Color(0xFF9FB3C8)
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Amber = Hedayah.DarkGold
+private val Good = Hedayah.Good
+private val Danger = Hedayah.Error
+private val Muted = Hedayah.Muted
 
 /** Snap radius when tapping near an existing node, in metres. */
 private const val SNAP_METERS = 12.0
@@ -135,7 +136,7 @@ fun PathEditorScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0B1520))) {
+    Box(modifier = Modifier.fillMaxSize().background(Hedayah.Ivory)) {
         CampusMapView(
             landmarks = landmarks,
             route = null,
@@ -205,6 +206,7 @@ fun PathEditorScreen(
                 fontSize = 13.sp,
                 modifier = Modifier
                     .background(Panel, RoundedCornerShape(12.dp))
+                    .heightIn(min = 48.dp)
                     .clickable(onClick = onClose)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             )
@@ -225,7 +227,8 @@ fun PathEditorScreen(
                     fontSize = 12.sp,
                     modifier = Modifier
                         .background(Panel, RoundedCornerShape(12.dp))
-                        .clickable(onClick = onExport)
+                        .heightIn(min = 48.dp)
+                    .clickable(onClick = onExport)
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 )
             }
@@ -244,7 +247,7 @@ fun PathEditorScreen(
             Text(
                 if (activeNodeId == null) "اضغط على الخريطة لبدء مسار"
                 else "اضغط لإضافة نقطة تالية · أو أنهِ المسار",
-                color = Color.White,
+                color = Hedayah.Ink,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -286,19 +289,20 @@ fun PathEditorScreen(
                 } else {
                     "استيراد الطرق من OpenStreetMap (المنطقة الظاهرة)"
                 },
-                color = if (importing) Muted else Color(0xFF0B1520),
+                color = if (importing) Muted else Hedayah.Ivory,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        if (importing) Color(0xFF1B2836) else Good,
+                        if (importing) Hedayah.Soft else Good,
                         RoundedCornerShape(12.dp)
                     )
                     .then(
                         if (importing) Modifier
-                        else Modifier.clickable {
+                        else Modifier.heightIn(min = 48.dp)
+                            .clickable {
                             importMessage = null
                             importRequested = true
                         }
@@ -352,10 +356,11 @@ private fun Toggle(
         horizontalArrangement = Arrangement.Center,
         modifier = modifier
             .background(
-                if (on) activeColour.copy(alpha = 0.2f) else Color(0xFF1B2836),
+                if (on) activeColour.copy(alpha = 0.2f) else Hedayah.Soft,
                 RoundedCornerShape(12.dp)
             )
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(vertical = 11.dp, horizontal = 8.dp)
     ) {
         Box(
@@ -388,8 +393,9 @@ private fun Action(
         fontWeight = FontWeight.Medium,
         textAlign = TextAlign.Center,
         modifier = modifier
-            .background(Color(0xFF1B2836), RoundedCornerShape(12.dp))
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .background(Hedayah.Soft, RoundedCornerShape(12.dp))
+            .then(if (enabled) Modifier.heightIn(min = 48.dp)
+                    .clickable(onClick = onClick) else Modifier)
             .padding(vertical = 12.dp)
     )
 }

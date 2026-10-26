@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,10 +45,10 @@ import com.sarab.vision.core.formatDistanceAr
 import com.sarab.vision.core.matchesQuery
 import com.sarab.vision.core.rankByDistance
 
-private val Bg = Color(0xFF0D1B2A)
-private val Panel = Color(0xFF16202C)
-private val Accent = Color(0xFF4FC3F7)
-private val Muted = Color(0xFF9FB3C8)
+private val Bg = Hedayah.Ivory
+private val Panel = Hedayah.Paper
+private val Accent = Hedayah.Forest
+private val Muted = Hedayah.Muted
 
 /**
  * Landmark picker: search, filter by category, sorted by distance.
@@ -81,139 +83,148 @@ fun LandmarkListScreen(
         }
     }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(Bg)
             // Without these the title sits under the system clock and the
             // bottom buttons under the gesture bar.
             .windowInsetsPadding(WindowInsets.systemBars)
+            .imePadding()
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(Modifier.height(16.dp))
+        item(key = "heading") {
+            Spacer(Modifier.height(12.dp))
+            HedayahMasthead(compact = true)
+            Spacer(Modifier.height(24.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "إلى أين تريد الذهاب؟",
+                        color = Hedayah.Ink,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (userFix != null) "دقة الموقع ±${userFix.accuracyMeters.toInt()} م"
+                        else "جاري تحديد موقعك…",
+                        color = Muted,
+                        fontSize = 13.sp
+                    )
+                }
                 Text(
-                    "إلى أين تريد الذهاب؟",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    if (userFix != null) "دقة الموقع ±${userFix.accuracyMeters.toInt()} م"
-                    else "جاري تحديد موقعك…",
-                    color = Muted,
-                    fontSize = 12.sp
+                    "إغلاق",
+                    color = Accent,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .background(Panel, RoundedCornerShape(10.dp))
+                        .heightIn(min = 48.dp)
+                        .clickable(onClick = onClose)
+                        .padding(horizontal = 14.dp, vertical = 9.dp)
                 )
             }
-            Text(
-                "إغلاق",
-                color = Accent,
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .background(Panel, RoundedCornerShape(10.dp))
-                    .clickable(onClick = onClose)
-                    .padding(horizontal = 14.dp, vertical = 9.dp)
+
+            Spacer(Modifier.height(14.dp))
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("ابحث… مثال: وحدة 13", color = Muted, fontSize = 14.sp) },
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Panel,
+                    unfocusedContainerColor = Panel,
+                    focusedTextColor = Hedayah.Ink,
+                    unfocusedTextColor = Hedayah.Ink,
+                    focusedIndicatorColor = Accent,
+                    unfocusedIndicatorColor = Hedayah.Soft,
+                    cursorColor = Accent
+                ),
+                modifier = Modifier.fillMaxWidth()
             )
-        }
 
-        Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("ابحث… مثال: وحدة 13", color = Muted, fontSize = 14.sp) },
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Panel,
-                unfocusedContainerColor = Panel,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedIndicatorColor = Accent,
-                unfocusedIndicatorColor = Color(0xFF243244),
-                cursorColor = Accent
-            ),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-        ) {
-            FilterChip("الكل", categoryFilter == null) { categoryFilter = null }
-            LandmarkCategory.entries.forEach { c ->
-                // Only offer filters that would actually return something.
-                if (landmarks.any { it.category == c }) {
-                    FilterChip(c.labelAr, categoryFilter == c) {
-                        categoryFilter = if (categoryFilter == c) null else c
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                FilterChip("الكل", categoryFilter == null) { categoryFilter = null }
+                LandmarkCategory.entries.forEach { c ->
+                    // Only offer filters that would actually return something.
+                    if (landmarks.any { it.category == c }) {
+                        FilterChip(c.labelAr, categoryFilter == c) {
+                            categoryFilter = if (categoryFilter == c) null else c
+                        }
                     }
                 }
             }
+
+            Spacer(Modifier.height(14.dp))
+
         }
-
-        Spacer(Modifier.height(14.dp))
-
         if (ranked.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    if (landmarks.isEmpty()) "لا توجد معالم مسجلة بعد"
-                    else "لا نتائج للبحث",
-                    color = Muted,
-                    fontSize = 15.sp
-                )
-                if (landmarks.isEmpty()) {
-                    Spacer(Modifier.height(14.dp))
+            item(key = "empty") {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
-                        "ابدأ وضع المسح",
-                        color = Accent,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .background(Panel, RoundedCornerShape(12.dp))
-                            .clickable(onClick = onOpenSurvey)
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                        if (landmarks.isEmpty()) "لا توجد معالم مسجلة بعد"
+                        else "لا نتائج للبحث",
+                        color = Muted,
+                        fontSize = 15.sp
                     )
+                    if (landmarks.isEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "ابدأ وضع المسح",
+                            color = Accent,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .background(Panel, RoundedCornerShape(12.dp))
+                                .heightIn(min = 48.dp)
+                        .clickable(onClick = onOpenSurvey)
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                        )
+                    }
                 }
             }
         } else {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(ranked, key = { it.landmark.id }) { fix ->
-                    LandmarkRow(
-                        landmark = fix.landmark,
-                        distanceMeters = fix.distanceMeters,
-                        onClick = { onSelect(fix.landmark) }
-                    )
-                }
+            items(ranked, key = { "landmark:${it.landmark.id}" }) { fix ->
+                LandmarkRow(
+                    landmark = fix.landmark,
+                    distanceMeters = fix.distanceMeters,
+                    onClick = { onSelect(fix.landmark) }
+                )
             }
         }
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp)
-        ) {
-            BottomAction("الخريطة", Modifier.weight(1f), onOpenMap)
-            BottomAction("وضع المسح", Modifier.weight(1f), onOpenSurvey)
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp, bottom = 14.dp)
-        ) {
-            // Drawing the paths is what turns the tested routing engine into
-            // something that actually produces routes, so it earns its own
-            // entry point rather than hiding in a menu.
-            BottomAction("رسم الطرق", Modifier.weight(1f), onOpenPaths)
+        item(key = "tools") {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp)
+            ) {
+                BottomAction("الخريطة", Modifier.weight(1f), onOpenMap)
+                BottomAction("وضع المسح", Modifier.weight(1f), onOpenSurvey)
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 14.dp)
+            ) {
+                // Drawing the paths is what turns the tested routing engine into
+                // something that actually produces routes, so it earns its own
+                // entry point rather than hiding in a menu.
+                BottomAction("رسم الطرق", Modifier.weight(1f), onOpenPaths)
+            }
         }
     }
 }
@@ -229,13 +240,14 @@ private fun LandmarkRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 5.dp)
-            .background(Panel, RoundedCornerShape(14.dp))
+            .background(Panel, RoundedCornerShape(12.dp))
+            .heightIn(min = 48.dp)
             .clickable(onClick = onClick)
-            .padding(14.dp)
+            .padding(16.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(48.dp)
                 .background(Accent.copy(alpha = 0.16f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
@@ -243,7 +255,7 @@ private fun LandmarkRow(
         }
         Spacer(Modifier.width(13.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(landmark.name, color = Color.White, fontSize = 16.sp)
+            Text(landmark.name, color = Hedayah.Ink, fontSize = 16.sp)
             Text(
                 buildString {
                     append(landmark.category.labelAr)
@@ -252,7 +264,7 @@ private fun LandmarkRow(
                     }
                 },
                 color = Muted,
-                fontSize = 12.sp
+                fontSize = 13.sp
             )
         }
         if (!distanceMeters.isNaN()) {
@@ -275,7 +287,8 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         modifier = Modifier
             .background(if (selected) Accent else Panel, RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(horizontal = 15.dp, vertical = 9.dp)
     )
 }
@@ -284,13 +297,14 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun BottomAction(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
         text = label,
-        color = Color.White,
+        color = Hedayah.Ink,
         fontSize = 14.sp,
         fontWeight = FontWeight.Medium,
         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         modifier = modifier
-            .background(Color(0xFF243244), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .background(Hedayah.Soft, RoundedCornerShape(12.dp))
+            .heightIn(min = 48.dp)
+                    .clickable(onClick = onClick)
             .padding(vertical = 14.dp)
     )
 }
