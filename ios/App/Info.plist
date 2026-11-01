@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ar</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ar</string>
+		<string>en</string>
+		<string>ur</string>
+		<string>id</string>
+		<string>tr</string>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>المطوف الذكي</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<!-- Only HTTPS to sm.hsaie.com and standard crypto: exempt, and declaring it
+	     here stops TestFlight from holding every build for the compliance prompt. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>يستخدم المطوف الذكي الكاميرا لرسم مسار الواقع المعزز على الأرض والتعرف على المعالم عند طلبك.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>يحتاج المطوف الذكي موقعك لحساب الاتجاه والمسافة إلى وجهتك. لا يُشارك موقعك إلا إذا فعّلت المشاركة بنفسك.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>يستخدم المطوف الذكي الميكروفون عندما تضغط زر التحدث لتسأل عن ما تراه.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>يحوّل المطوف الذكي سؤالك المنطوق إلى نص ليرسله إلى المساعد الذكي.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>يتيح لك المطوف الذكي اختيار صورة ليصفها ويجيب عن أسئلتك حولها.</string>
+	<!-- Needed so iOS offers the XREAL glasses (an external USB-C display) to
+	     configurationForConnecting as their own scene instead of mirroring. -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>ibm_plex_sans_arabic_regular.ttf</string>
+		<string>ibm_plex_sans_arabic_medium.ttf</string>
+		<string>ibm_plex_sans_arabic_semibold.ttf</string>
+		<string>ibm_plex_sans_arabic_bold.ttf</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>AccentColor</string>
+	</dict>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+</dict>
+</plist>

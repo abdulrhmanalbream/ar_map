@@ -1,0 +1,77 @@
+# XcodeGen spec. The .xcodeproj is generated on the build machine (Codemagic)
+# rather than committed: this repo is edited on Windows with no Xcode, and a
+# hand-maintained pbxproj is the one file nobody here could safely merge.
+name: SmartMutawwif
+options:
+  bundleIdPrefix: com.sarab
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: ar
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Swift 5 mode on purpose: Xcode 16+ defaults new projects to Swift 6 strict
+    # concurrency, which turns every AVFoundation/CoreLocation callback into an
+    # error. The Android codebase this ports has no equivalent constraint.
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "3.3.6"
+    CURRENT_PROJECT_VERSION: "1"
+    VERSIONING_SYSTEM: apple-generic
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+packages:
+  MutawwifCore:
+    path: Core
+
+targets:
+  SmartMutawwif:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      # Shared with Android so the 36 navigation clips and the campus seed
+      # can never drift between platforms. Folder reference keeps the
+      # navigation/ar/ subdirectory that manifest.json paths assume.
+      - path: ../app/src/main/assets/navigation
+        type: folder
+        buildPhase: resources
+      - path: ../app/src/main/assets/landmarks.json
+        buildPhase: resources
+    dependencies:
+      - package: MutawwifCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sarab.vision
+        PRODUCT_NAME: SmartMutawwif
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Manual
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+
+  SmartMutawwifTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: AppTests
+    dependencies:
+      - target: SmartMutawwif
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sarab.vision.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  SmartMutawwif:
+    build:
+      targets:
+        SmartMutawwif: all
+        SmartMutawwifTests: [test]
+    test:
+      targets:
+        - SmartMutawwifTests
+    archive:
+      config: Release

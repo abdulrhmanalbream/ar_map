@@ -1,0 +1,66 @@
+# iPhone build for Smart Mutawwif (المطوف الذكي). Sources live in ios/;
+# the Android app is untouched by this workflow.
+#
+# One-time setup (see ios/README_AR.md):
+#  1. App Store Connect → create the app with bundle id com.sarab.vision.
+#  2. Codemagic → Team settings → Integrations → Developer Portal → add an
+#     App Store Connect API key and name it exactly "codemagic-asc".
+workflows:
+  ios-testflight:
+    name: iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: codemagic-asc
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.sarab.vision
+      vars:
+        XCODE_PROJECT: ios/SmartMutawwif.xcodeproj
+        XCODE_SCHEME: SmartMutawwif
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: ios-app
+          include: true
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Core navigation tests (MutawwifCore)
+        # Pure Foundation package, so it runs on the macOS host in seconds and
+        # gates the upload: a broken geodesy/guidance port must never ship.
+        script: |
+          cd ios/Core
+          swift test
+      - name: Generate Xcode project
+        script: |
+          cd ios
+          xcodegen generate
+      - name: Signing profiles
+        script: xcode-project use-profiles --project "$XCODE_PROJECT"
+      - name: Build number
+        script: |
+          cd ios
+          agvtool new-version -all "$BUILD_NUMBER"
+      - name: App unit tests (simulator)
+        script: |
+          xcode-project run-tests \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --output-dir build/ios/test
+        test_report: build/ios/test/*.xml
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
