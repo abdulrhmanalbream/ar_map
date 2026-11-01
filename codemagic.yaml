@@ -5,6 +5,13 @@
 #  1. App Store Connect → create the app with bundle id com.sarab.vision.
 #  2. Codemagic → Team settings → Integrations → Developer Portal → add an
 #     App Store Connect API key and name it exactly "codemagic-asc".
+#  3. Codemagic → app → Environment variables → group "ios_signing" with
+#     APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY_IDENTIFIER,
+#     APP_STORE_CONNECT_PRIVATE_KEY (the .p8 text) and CERTIFICATE_PRIVATE_KEY
+#     (an RSA key; all marked Secure).
+# Signing files are created on the build machine instead of uploaded: there is
+# no Mac here to make a certificate, and the API key can create both the
+# distribution certificate and the App Store profile on demand.
 workflows:
   ios-testflight:
     name: iOS → TestFlight
@@ -14,10 +21,10 @@ workflows:
       app_store_connect: codemagic-asc
     environment:
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.sarab.vision
+      groups:
+        - ios_signing
       vars:
+        BUNDLE_ID: com.sarab.vision
         XCODE_PROJECT: ios/SmartMutawwif.xcodeproj
         XCODE_SCHEME: SmartMutawwif
     triggering:
@@ -39,8 +46,12 @@ workflows:
         script: |
           cd ios
           xcodegen generate
-      - name: Signing profiles
-        script: xcode-project use-profiles --project "$XCODE_PROJECT"
+      - name: Signing certificate and profile
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles --project "$XCODE_PROJECT"
       - name: Build number
         script: |
           cd ios

@@ -27,9 +27,16 @@
    - Bundle ID: سجّل `com.sarab.vision` من Certificates, Identifiers & Profiles إذا لم يظهر. إذا كان محجوزاً لحساب آخر، فاختر معرّفاً آخر وغيّره في `ios/project.yml` و`codemagic.yaml`.
 2. **App Store Connect** ← Users and Access ← Integrations ← App Store Connect API ← أنشئ مفتاحاً بصلاحية **App Manager** ونزّل ملف `.p8`.
 3. **Codemagic** ← Team settings ← Integrations ← Developer Portal ← Manage keys ← أضف المفتاح باسم **`codemagic-asc`** بالضبط.
-4. **Codemagic** ← Add application ← اختر المستودع `ar_map` ← سيقرأ `codemagic.yaml` تلقائياً.
-5. ارفع الكود إلى البرانش `ios-app`؛ كل push عليه يبني تلقائياً. ويمكن أيضاً تشغيل workflow **iOS → TestFlight** يدوياً.
-6. بعد نجاح البناء بدقائق تظهر النسخة في تطبيق **TestFlight** على الآيفون.
+4. **Codemagic** ← التطبيق ← **Environment variables** ← أنشئ مجموعة اسمها **`ios_signing`** فيها أربعة متغيرات، وكلها مفعّل عليها **Secure**:
+   - `APP_STORE_CONNECT_ISSUER_ID`: الـ Issuer ID الظاهر أعلى صفحة مفاتيح API.
+   - `APP_STORE_CONNECT_KEY_IDENTIFIER`: الـ Key ID للمفتاح.
+   - `APP_STORE_CONNECT_PRIVATE_KEY`: محتوى ملف `.p8` كاملاً.
+   - `CERTIFICATE_PRIVATE_KEY`: محتوى ملف `codemagic_certificate_key.pem` كاملاً. هذا مفتاح RSA مولَّد محلياً، وCodemagic ينشئ به شهادة التوزيع. احتفظ به ولا ترفعه إلى GitHub.
+
+   بهذا ينشئ Codemagic الشهادة وملف Provisioning Profile تلقائياً، فلا تحتاج جهاز Mac.
+5. **Codemagic** ← Add application ← اختر المستودع `ar_map` ← سيقرأ `codemagic.yaml` تلقائياً.
+6. ارفع الكود إلى البرانش `ios-app`؛ كل push عليه يبني تلقائياً. ويمكن أيضاً تشغيل workflow **iOS → TestFlight** يدوياً.
+7. بعد نجاح البناء بدقائق تظهر النسخة في تطبيق **TestFlight** على الآيفون.
 
 ## خطوات البناء على Codemagic
 
