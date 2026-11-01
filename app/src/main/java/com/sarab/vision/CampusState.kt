@@ -31,6 +31,18 @@ import com.sarab.vision.core.stepAlongBearing
 import com.sarab.vision.core.stepTowards
 import com.sarab.vision.core.findAmbiguousPairs
 import com.sarab.vision.core.guidanceFor
+import com.sarab.vision.core.Maneuver
+import com.sarab.vision.core.OffRouteState
+import com.sarab.vision.core.RouteProgress
+import com.sarab.vision.core.UpcomingManeuver
+import com.sarab.vision.core.offRouteStep
+import com.sarab.vision.core.pointAlongRoute
+import com.sarab.vision.core.routeManeuvers
+import com.sarab.vision.core.routeProgress
+import com.sarab.vision.core.routedGuidance
+import com.sarab.vision.core.upcomingManeuver
+import com.sarab.vision.core.ROUTE_LOOKAHEAD_M
+import com.sarab.vision.core.remainingRoute
 import com.sarab.vision.data.LandmarkStore
 import com.sarab.vision.data.PathNetworkStore
 import com.sarab.vision.loc.HeadingProvider
@@ -555,7 +567,7 @@ class CampusState(private val context: Context) {
         val t = target
         // guidanceFor's legacy phone fallback treats an unknown heading as
         // straight ahead. A missing glasses sample must never invent that turn.
-        guidance = if (position == null || t == null ||
+        val doorGuidance = if (position == null || t == null ||
             (externalTrackingEnabled && headingDegrees == null)
         ) {
             GuidanceMode.NoFix
@@ -563,20 +575,91 @@ class CampusState(private val context: Context) {
             guidanceFor(position, headingDegrees, t, landmarks)
         }
 
-        // Recompute the route only when the user has moved meaningfully.
-        // Re-running A* on every GPS tick and every compass degree would be
-        // wasted work on a phone that already runs hot.
-        val movedEnough = position != null && lastRoutedFrom.let { previous ->
-            previous == null || distanceMeters(previous, position) > 5.0
+        val current = route
+        val reroute = when {
+            position == null || t == null || !position.isValid -> false
+            current == null || lastRoutedFrom == null || routedTargetId != t.id -> true
+            // A straight fallback is re-aimed as the user walks, as before,
+            // and retried against the network in case they came within reach.
+            current.isStraightFallback -> distanceMeters(lastRoutedFrom!!, position) > 5.0
+            else -> false
         }
-        if (movedEnough || route == null) {
-            lastRoutedFrom = position
-            route = if (position == null || t == null || !position.isValid) null
-            else routeTo(pathNetwork, position, t.approachPoint(position), travelMode)
+        if (position == null || t == null || !position.isValid) {
+            route = null
+            routeManeuverList = emptyList()
+            progress = null
+            nextManeuver = null
+            routedTargetId = null
+        } else if (reroute) {
+            computeRoute(position, t)
         }
+
+        // A routed path is followed, not recomputed: recomputing every few
+        // metres re-snaps onto whichever road is nearest that second and the
+        // instructions flicker. Progress is projected instead, and leaving
+        // the route for several fixes is what triggers a new one.
+        val active = route
+        if (position != null && active != null && !active.isStraightFallback) {
+            val p = routeProgress(active.points, position, progress?.alongMeters)
+            progress = p
+            if (p != null) {
+                val (state, rerouteNow) = offRouteStep(offRoute, p.offRouteMeters, fix?.accuracyMeters?.toDouble())
+                offRoute = state
+                if (rerouteNow && t != null) {
+                    Log.i(TAG, "Off route by ${p.offRouteMeters.toInt()} m; rerouting")
+                    computeRoute(position, t)
+                    progress = route?.let { routeProgress(it.points, position) }
+                }
+            }
+            nextManeuver = progress?.let { upcomingManeuver(routeManeuverList, it.alongMeters) }
+        } else {
+            progress = null
+            nextManeuver = null
+        }
+
+        val routed = route
+        guidance = if (position != null && routed != null && !routed.isStraightFallback)
+            routedGuidance(doorGuidance, position, headingDegrees, routed.points, progress)
+        else doorGuidance
 
         onUpdate?.invoke()
     }
+
+    private fun computeRoute(position: LatLng, t: Landmark) {
+        lastRoutedFrom = position
+        routedTargetId = t.id
+        offRoute = OffRouteState()
+        val computed = routeTo(pathNetwork, position, t.approachPoint(position), travelMode)
+        route = computed
+        routeManeuverList = if (computed.isStraightFallback) emptyList()
+            else routeManeuvers(computed.points, landmarks.filter { it.id != t.id })
+        progress = null
+    }
+
+    /**
+     * The route from where the user is now to the door, for renderers that
+     * draw from the user's feet. A straight fallback is already that.
+     */
+    fun routeAhead(): List<LatLng> {
+        val r = route ?: return emptyList()
+        val along = progress?.alongMeters
+        return if (r.isStraightFallback || along == null) r.points else remainingRoute(r.points, along)
+    }
+
+    /** The current route's instructions: DEPART, each turn, ARRIVE. */
+    var routeManeuverList by mutableStateOf<List<Maneuver>>(emptyList())
+        private set
+
+    /** Where the user is along [route]; null for a straight fallback. */
+    var progress by mutableStateOf<RouteProgress?>(null)
+        private set
+
+    /** The next instruction ahead and how far it is. */
+    var nextManeuver by mutableStateOf<UpcomingManeuver?>(null)
+        private set
+
+    private var routedTargetId: String? = null
+    private var offRoute = OffRouteState()
 
     /** Position the current route was computed from. */
     private var lastRoutedFrom: LatLng? = null
@@ -720,6 +803,14 @@ class CampusState(private val context: Context) {
         val p = fix?.position ?: return null
         val t = target ?: return null
         if (!p.isValid) return null
+        // Along a routed path the compass marker points where the path goes
+        // next, not through the buildings between the user and the door.
+        val r = route
+        val along = progress?.alongMeters
+        if (r != null && !r.isStraightFallback && along != null) {
+            val aim = pointAlongRoute(r.points, along + ROUTE_LOOKAHEAD_M)
+            if (aim != null && distanceMeters(p, aim) >= 1.0) return bearingDegrees(p, aim)
+        }
         return bearingDegrees(p, t.approachPoint(p))
     }
 

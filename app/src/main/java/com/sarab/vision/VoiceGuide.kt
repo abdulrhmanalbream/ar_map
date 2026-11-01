@@ -14,6 +14,8 @@ import com.sarab.vision.core.NavigationVoiceOption
 import com.sarab.vision.core.NavigationSpeechSegment
 import com.sarab.vision.core.navigationSelectionSpeech
 import com.sarab.vision.core.navigationSpeechPlan
+import com.sarab.vision.core.TurnCue
+import com.sarab.vision.core.turnSpeechPlan
 import com.sarab.vision.core.selectNavigationVoice
 import com.sarab.vision.diagnostics.DiagnosticLog
 
@@ -98,6 +100,9 @@ class VoiceGuide(context: Context) {
         play(navigationSpeechPlan(mode, targetName, manualRepeat))
 
     fun speakSelected(targetName: String) = play(navigationSelectionSpeech(targetName))
+
+    /** "In 40 m" + the recorded direction clip, or the clip alone at the corner. */
+    fun speakTurn(cue: TurnCue) = play(turnSpeechPlan(cue))
 
     fun speakName(name: String) = speak(name)
 

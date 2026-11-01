@@ -33,7 +33,8 @@ import androidx.compose.ui.unit.sp
 import com.sarab.vision.core.Route
 import com.sarab.vision.core.TravelMode
 import com.sarab.vision.core.formatDistance
-import com.sarab.vision.core.routeSteps
+import com.sarab.vision.core.routeManeuvers
+import com.sarab.vision.core.routeStepList
 
 private val Panel = Hedayah.Paper
 private val Ink = Hedayah.Ivory
@@ -162,12 +163,12 @@ fun RouteCard(
             )
         }
 
-        // A straight-line fallback is exactly two points. Saying so beats
-        // drawing a line through three buildings and calling it a route.
-        if (route != null && route.points.size == 2) {
+        // Saying a line is straight beats drawing it through three
+        // buildings and calling it a route.
+        if (route != null && route.isStraightFallback) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "خط مستقيم — لا توجد طرق مرسومة هنا بعد. استورد الطرق من " +
+                "خط مستقيم — أنت بعيد عن الطرق المعروفة هنا. استورد الطرق من " +
                     "OpenStreetMap أو ارسمها من وضع الأدوات.",
                 color = Hedayah.DarkGold,
                 fontSize = 11.sp,
@@ -192,7 +193,9 @@ fun RouteCard(
                     .padding(vertical = 12.dp)
             )
 
-            val steps = remember(route) { route?.let { routeSteps(it) }.orEmpty() }
+            val steps = remember(route) {
+                route?.takeUnless { it.isStraightFallback }?.let { routeStepList(routeManeuvers(it.points)) }.orEmpty()
+            }
             if (steps.isNotEmpty()) {
                 Text(
                     if (stepsOpen) "إخفاء الخطوات" else "الخطوات (${steps.size})",
@@ -210,7 +213,9 @@ fun RouteCard(
         }
 
         if (stepsOpen) {
-            val steps = remember(route) { route?.let { routeSteps(it) }.orEmpty() }
+            val steps = remember(route) {
+                route?.takeUnless { it.isStraightFallback }?.let { routeStepList(routeManeuvers(it.points)) }.orEmpty()
+            }
             Spacer(Modifier.height(12.dp))
             Column(
                 modifier = Modifier

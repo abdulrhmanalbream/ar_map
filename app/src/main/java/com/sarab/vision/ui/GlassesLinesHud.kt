@@ -94,6 +94,16 @@ data class GlassesRouteInput(
     val rollDegrees: Double?,
 )
 
+/**
+ * The next turn on the routed path, already worded: «بعد ٤٠ م يميناً».
+ * [type] and [turnDegrees] draw the same arrow the phone card shows.
+ */
+data class GlassesNextTurn(
+    val text: String,
+    val type: com.sarab.vision.core.ManeuverType,
+    val turnDegrees: Double,
+)
+
 data class GlassesLinesStatus(
     val assistant: GlassesAssistantIndicator = GlassesAssistantIndicator.NONE,
     val answer: String? = null,
@@ -121,6 +131,7 @@ fun GlassesLinesHud(
     status: GlassesLinesStatus,
     displayHorizontalFovDegrees: Double,
     calibrationTarget: GlassesDisplayRect? = null,
+    nextTurn: GlassesNextTurn? = null,
 ) {
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
@@ -135,6 +146,9 @@ fun GlassesLinesHud(
                 key(outline.id) { OutlineBracket(outline, widthPx, heightPx) }
             }
             calibrationTarget?.let { CalibrationTarget(it, widthPx, heightPx) }
+            if (nextTurn != null && !status.arrived && !status.ambiguous && calibrationTarget == null) {
+                NextTurnLine(nextTurn, Modifier.align(Alignment.TopStart).padding(start = 28.dp, top = 10.dp))
+            }
             StatusLine(status, Modifier.align(Alignment.BottomCenter))
             HelpBadge(status.help, Modifier.align(Alignment.TopEnd).padding(end = 28.dp))
         }
@@ -320,6 +334,19 @@ private fun StatusLine(status: GlassesLinesStatus, modifier: Modifier) {
             }
             if (text.isNotEmpty()) Text(text, color = color, fontSize = 18.sp, textAlign = TextAlign.Center)
         }
+    }
+}
+
+/** One gold line in a top corner: no panel, so nothing veils the view. */
+@Composable
+private fun NextTurnLine(turn: GlassesNextTurn, modifier: Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Canvas(Modifier.size(30.dp)) {
+            drawManeuverArrow(turn.type, turn.turnDegrees, RouteGold.copy(alpha = 0.25f), strokeDp = 7f)
+            drawManeuverArrow(turn.type, turn.turnDegrees, RouteGold, strokeDp = 2.5f)
+        }
+        Text(turn.text, color = RouteGold, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

@@ -91,6 +91,7 @@ import com.sarab.vision.core.HeadPoseSample
 import com.sarab.vision.ui.GlassesAssistantIndicator
 import com.sarab.vision.ui.GlassesHelpIndicator
 import com.sarab.vision.ui.GlassesLinesHud
+import com.sarab.vision.ui.GlassesNextTurn
 import com.sarab.vision.ui.GlassesLinesSettings
 import com.sarab.vision.ui.GlassesLinesStatus
 import com.sarab.vision.ui.GlassesRouteInput
@@ -119,6 +120,15 @@ import com.sarab.vision.core.SignMatch
 import com.sarab.vision.core.VoiceState
 import com.sarab.vision.core.advanceHudMenu
 import com.sarab.vision.core.nextVoiceCue
+import com.sarab.vision.core.GLASSES_TURN_VISIBLE_M
+import com.sarab.vision.core.glassesTurnTextAr
+import com.sarab.vision.core.TurnVoiceState
+import com.sarab.vision.core.after
+import com.sarab.vision.core.turnCueFor
+import com.sarab.vision.core.turnCueIsNew
+import com.sarab.vision.core.turnCueTextAr
+import com.sarab.vision.core.TurnCueStage
+import com.sarab.vision.ui.NextTurnCard
 import com.sarab.vision.core.navigationVoiceEligible
 import com.sarab.vision.core.syncHudMenu
 import com.sarab.vision.core.hudMenuView
@@ -294,6 +304,8 @@ class ArNavActivity : ComponentActivity() {
 
     private lateinit var voice: VoiceGuide
     private var voiceState = VoiceState()
+    private var turnVoiceState = TurnVoiceState()
+    private var turnVoiceRoute: com.sarab.vision.core.Route? = null
     private var voiceTargetId: String? = null
     private var navigationMuted by mutableStateOf(false)
     private val navigationAudioPrefs by lazy { getSharedPreferences("smart_mutawwif_audio", MODE_PRIVATE) }
@@ -977,7 +989,7 @@ class ArNavActivity : ComponentActivity() {
         val eyePose = useEyeCamera && northOffset != null && motion.tracking
         val route = if (position != null && heading != null && target != null) GlassesRouteInput(
             position = position,
-            routePoints = campus.route?.points.orEmpty(),
+            routePoints = campus.routeAhead(),
             targetPosition = target.approachPoint(position),
             headingDegrees = heading,
             pitchDegrees = if (eyePose) alignedGlassesTilt(motion.pitchDegrees, horizonPitch) else null,
@@ -1019,6 +1031,18 @@ class ArNavActivity : ComponentActivity() {
             ),
             displayHorizontalFovDegrees = displayFov.toDouble(),
             calibrationTarget = if (calibratingOptics) glassesCalibrationTarget(opticsCalibration, displayFov.toDouble()) else null,
+            nextTurn = campus.nextManeuver?.takeIf {
+                // Far turns stay off the glasses: the chevrons already say
+                // "keep going", and a distant instruction is just clutter.
+                it.maneuver.type.isTurn && it.distanceMeters <= GLASSES_TURN_VISIBLE_M &&
+                    (campus.guidance is GuidanceMode.Compass || campus.guidance is GuidanceMode.ArApproach)
+            }?.let {
+                GlassesNextTurn(
+                    text = glassesTurnTextAr(it.maneuver.type, it.distanceMeters),
+                    type = it.maneuver.type,
+                    turnDegrees = it.maneuver.turnDegrees,
+                )
+            },
         )
     }
 
@@ -1287,6 +1311,17 @@ class ArNavActivity : ComponentActivity() {
                     onModeChange = { campus.chooseTravelMode(it) },
                     needsCalibration = campus.compassNeedsCalibration
                 )
+
+                // The next turn on the routed path. Hidden once the door is
+                // close enough that the arrival flow takes over.
+                val upcoming = campus.nextManeuver
+                if (upcoming != null && (campus.guidance is GuidanceMode.Compass ||
+                        campus.guidance is GuidanceMode.ArApproach)) {
+                    NextTurnCard(
+                        upcoming,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1571,7 +1606,7 @@ class ArNavActivity : ComponentActivity() {
         // Feed the real route through, so the ground ribbon follows the path
         // A* actually found rather than pointing through buildings.
         renderer.userPosition = campus.fix?.position
-        renderer.routePoints = campus.route?.points.orEmpty()
+        renderer.routePoints = campus.routeAhead()
         renderer.stairsAhead = campus.fix?.position?.let {
             stairsAhead(campus.route, campus.pathNetwork, it)
         } ?: false
@@ -1743,15 +1778,43 @@ class ArNavActivity : ComponentActivity() {
         val eligible = navigationVoiceEligible(resumed, religiousMode, target != null,
             useEyeCamera, glasses.connected, navigationMuted)
         if (eligible) {
-            val cue = target?.let { voiceCueAr(guidance, it.name) }
-            val urgent = guidance is GuidanceMode.Arrived ||
-                guidance is GuidanceMode.Ambiguous
-            val (next, toSpeak) =
-                nextVoiceCue(voiceState, cue, urgent, System.currentTimeMillis(), playbackBusy = voice.isSpeaking)
-            voiceState = next
-            if (toSpeak != null && target != null) {
-                DiagnosticLog.record("NavigationVoice", "automatic source=${if (useEyeCamera) "eye" else "phone"} urgent=$urgent")
-                voice.speakGuidance(guidance, target.name)
+            val route = campus.route
+            if (route !== turnVoiceRoute) {
+                // Announcements belong to one route: a reroute starts afresh.
+                turnVoiceRoute = route
+                turnVoiceState = TurnVoiceState()
+            }
+            val turnCue = turnCueFor(campus.nextManeuver).takeIf {
+                guidance is GuidanceMode.Compass || guidance is GuidanceMode.ArApproach
+            }
+            if (turnCue != null) {
+                if (turnCueIsNew(turnVoiceState, turnCue)) {
+                    // "Turn right" at the corner cannot wait out the six-second
+                    // gap -- by then the corner is behind the walker -- so it
+                    // interrupts like arrival does. "In 40 m" waits its turn.
+                    val urgent = turnCue.stage == TurnCueStage.NOW
+                    val (next, toSpeak) = nextVoiceCue(voiceState, turnCueTextAr(turnCue), urgent,
+                        System.currentTimeMillis(), playbackBusy = voice.isSpeaking)
+                    voiceState = next
+                    if (toSpeak != null) {
+                        turnVoiceState = turnVoiceState.after(turnCue)
+                        DiagnosticLog.record("NavigationVoice", "turn stage=${turnCue.stage} urgent=$urgent")
+                        voice.speakTurn(turnCue)
+                    }
+                }
+                // While a turn is within announcing range the compass cue stays
+                // quiet, so "keep going" never talks over "turn right".
+            } else {
+                val cue = target?.let { voiceCueAr(guidance, it.name) }
+                val urgent = guidance is GuidanceMode.Arrived ||
+                    guidance is GuidanceMode.Ambiguous
+                val (next, toSpeak) =
+                    nextVoiceCue(voiceState, cue, urgent, System.currentTimeMillis(), playbackBusy = voice.isSpeaking)
+                voiceState = next
+                if (toSpeak != null && target != null) {
+                    DiagnosticLog.record("NavigationVoice", "automatic source=${if (useEyeCamera) "eye" else "phone"} urgent=$urgent")
+                    voice.speakGuidance(guidance, target.name)
+                }
             }
         }
         previousGuidance = guidance
@@ -1761,11 +1824,22 @@ class ArNavActivity : ComponentActivity() {
         if (::voice.isInitialized) voice.stop()
         voiceState = VoiceState()
         voiceTargetId = null
+        turnVoiceState = TurnVoiceState()
+        turnVoiceRoute = null
     }
 
     private fun repeatNavigationInstruction() {
         val target = campus.target ?: return
         if (!navigationVoiceEligible(resumed, religiousMode, true, useEyeCamera, glasses.connected, navigationMuted)) return
+        val turnCue = turnCueFor(campus.nextManeuver).takeIf {
+            campus.guidance is GuidanceMode.Compass || campus.guidance is GuidanceMode.ArApproach
+        }
+        if (turnCue != null) {
+            // Repeat means "what do I do next", and near a corner that is the turn.
+            voiceState = VoiceState(turnCueTextAr(turnCue), System.currentTimeMillis())
+            voice.speakTurn(turnCue)
+            return
+        }
         voiceState = VoiceState(voiceCueAr(campus.guidance, target.name), System.currentTimeMillis())
         voice.speakGuidance(campus.guidance, target.name, manualRepeat = true)
     }

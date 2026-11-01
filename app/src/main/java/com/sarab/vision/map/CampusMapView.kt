@@ -19,6 +19,7 @@ import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.Landmark
 import com.sarab.vision.core.PathNetwork
 import com.sarab.vision.core.Route
+import com.sarab.vision.core.routeManeuvers
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -42,12 +43,14 @@ private const val TAG = "SarabMap"
 
 private const val SRC_LANDMARKS = "landmarks"
 private const val SRC_ROUTE = "route"
+private const val SRC_TURNS = "route-turns"
 private const val SRC_PATHS = "paths"
 private const val SRC_USER = "user"
 
 private const val LYR_PATHS = "paths-line"
 private const val LYR_ROUTE_CASING = "route-casing"
 private const val LYR_ROUTE = "route-line"
+private const val LYR_TURNS = "route-turns"
 private const val LYR_LANDMARKS = "landmarks-pin"
 private const val LYR_LABELS = "landmarks-label"
 private const val LYR_ACCURACY = "user-accuracy"
@@ -309,6 +312,7 @@ private fun installLayers(style: Style, density: Float) {
 
         style.addSource(GeoJsonSource(SRC_PATHS))
         style.addSource(GeoJsonSource(SRC_ROUTE))
+        style.addSource(GeoJsonSource(SRC_TURNS))
         style.addSource(GeoJsonSource(SRC_LANDMARKS))
         style.addSource(GeoJsonSource(SRC_USER))
 
@@ -337,6 +341,17 @@ private fun installLayers(style: Style, density: Float) {
                 PropertyFactory.lineOpacity(1.0f),
                 PropertyFactory.lineCap("round"),
                 PropertyFactory.lineJoin("round")
+            )
+        )
+
+        // Each turn on the route: a white dot ringed in the route colour, the
+        // marker every walking app uses for "something happens here".
+        style.addLayer(
+            CircleLayer(LYR_TURNS, SRC_TURNS).withProperties(
+                PropertyFactory.circleRadius(5.5f),
+                PropertyFactory.circleColor(AndroidColor.WHITE),
+                PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeColor(AndroidColor.parseColor("#0B3D62"))
             )
         )
 
@@ -454,6 +469,14 @@ private fun refresh(
         } ?: emptyList()
         (style.getSource(SRC_ROUTE) as? GeoJsonSource)
             ?.setGeoJson(FeatureCollection.fromFeatures(routeFeatures))
+
+        val turnFeatures = route?.takeUnless { it.isStraightFallback }?.let { r ->
+            routeManeuvers(r.points).filter { it.type.isTurn }.map { m ->
+                Feature.fromGeometry(Point.fromLngLat(m.position.longitude, m.position.latitude))
+            }
+        } ?: emptyList()
+        (style.getSource(SRC_TURNS) as? GeoJsonSource)
+            ?.setGeoJson(FeatureCollection.fromFeatures(turnFeatures))
 
         (style.getSource(SRC_PATHS) as? GeoJsonSource)?.setGeoJson(
             FeatureCollection.fromFeatures(

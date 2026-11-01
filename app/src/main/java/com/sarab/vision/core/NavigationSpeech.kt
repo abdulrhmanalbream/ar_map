@@ -69,3 +69,36 @@ internal fun navigationSpeechPlan(mode: GuidanceMode, targetName: String, manual
 
 internal fun navigationSelectionSpeech(targetName: String): List<NavigationSpeechSegment> = withDestination(
     NavigationSpeechSegment.Clip("nav_ar_selected", "تم اختيار وجهتك."), targetName)
+
+/**
+ * The recorded direction clip for a turn. Sharp turns reuse the plain
+ * left/right recordings: the card says «بحدّة», and an approximation in the
+ * same Sulafat voice beats switching to device TTS mid-sentence.
+ */
+internal fun turnDirection(type: ManeuverType): NavigationDirection? = when (type) {
+    ManeuverType.SLIGHT_RIGHT -> NavigationDirection.SLIGHT_RIGHT
+    ManeuverType.RIGHT, ManeuverType.SHARP_RIGHT -> NavigationDirection.RIGHT
+    ManeuverType.SLIGHT_LEFT -> NavigationDirection.SLIGHT_LEFT
+    ManeuverType.LEFT, ManeuverType.SHARP_LEFT -> NavigationDirection.LEFT
+    ManeuverType.U_TURN -> NavigationDirection.BACK
+    ManeuverType.DEPART, ManeuverType.ARRIVE -> null
+}
+
+/**
+ * «بعد أربعين متراً» + the direction clip (+ «عند …») ahead of a turn, or the
+ * clip alone at the corner. The distance has no recording, so it goes to the
+ * installed offline Arabic voice, as custom names already do; ASCII digits
+ * because every Arabic TTS engine reads them correctly.
+ */
+internal fun turnSpeechPlan(cue: TurnCue): List<NavigationSpeechSegment> {
+    val direction = turnDirection(cue.maneuver.type) ?: return emptyList()
+    val segments = mutableListOf<NavigationSpeechSegment>()
+    if (cue.stage == TurnCueStage.PREPARE) {
+        segments += NavigationSpeechSegment.Text("بعد ${roundedWalkMeters(cue.distanceMeters)} متراً")
+    }
+    segments += NavigationSpeechSegment.Clip(direction.clipId, direction.spokenText)
+    cue.maneuver.landmarkName?.trim()?.takeIf { it.isNotEmpty() }?.let {
+        segments += NavigationSpeechSegment.Text("عند $it")
+    }
+    return segments
+}

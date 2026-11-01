@@ -1,0 +1,15 @@
+campus_paths.json — walkway and road network bundled with Smart Mutawwif
+
+Map data © OpenStreetMap contributors.
+Available under the Open Database License (ODbL) 1.0:
+https://opendatacommons.org/licenses/odbl/1-0/
+https://www.openstreetmap.org/copyright
+
+Source: Overpass API (overpass-api.de), query way["highway"] over the campus
+bounding box (south 24.478116, west 39.556489, north 24.484844,
+east 39.564251), fetched 2026-11-01. The ways were converted into this app's
+path-network JSON (nodes keyed by coordinate, one edge per way segment, with
+foot/bicycle/car permissions read from the OSM tags) without other changes.
+
+Under ODbL, this derived database is itself available under ODbL 1.0, and the
+attribution above must remain visible to users of the data.

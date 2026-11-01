@@ -100,6 +100,9 @@ data class Route(
     val nodeIds: List<String>
 ) {
     val minutes: Int get() = travelMinutes(distanceMeters, mode)
+
+    /** No network was used: the line goes through whatever is in the way. */
+    val isStraightFallback: Boolean get() = nodeIds.isEmpty()
 }
 
 /**
@@ -190,11 +193,146 @@ private fun buildRoute(
 }
 
 /**
- * Routes from a raw position to a landmark, snapping both onto the network.
+ * How far the user may be from every road and still be routed over the
+ * network. Beyond this the nearest road is not plausibly where they will walk
+ * first, and a straight line is the honest answer.
+ */
+const val START_SNAP_MAX_M = 250.0
+
+/**
+ * How far a door may sit from the network. The bundled OSM ways stop at the
+ * kerb; the surveyed doors are 14-42 m back from it, across forecourts that
+ * nobody has mapped, so the last leg is a short straight walk from the road.
+ */
+const val GOAL_SNAP_MAX_M = 150.0
+
+/**
+ * Douglas-Peucker tolerance. OSM traces wobble by a metre or two between
+ * nodes; anything under this is drawing noise, not a turn a walker makes.
+ */
+const val ROUTE_SIMPLIFY_TOLERANCE_M = 2.5
+
+/** A projection this close to an edge end reuses the existing junction. */
+private const val SNAP_ENDPOINT_EPSILON_M = 0.5
+
+private const val VIRTUAL_START_ID = "route-start"
+private const val VIRTUAL_GOAL_ID = "route-goal"
+
+/** The closest point on the network to a position, along a usable edge. */
+data class EdgeSnap(
+    val edge: PathEdge,
+    val point: LatLng,
+    /** 0 at [PathEdge.fromNodeId], 1 at [PathEdge.toNodeId]. */
+    val fraction: Double,
+    val distanceMeters: Double
+)
+
+/**
+ * Projects [position] onto the nearest edge [mode] may use.
+ *
+ * Snapping to an edge rather than to the nearest *node* matters on real OSM
+ * data: a long straight road has nodes only at its ends, so node snapping
+ * sends someone standing mid-road 150 m back to a junction behind them before
+ * the route even starts.
+ */
+fun snapToNetwork(
+    network: PathNetwork,
+    position: LatLng,
+    mode: TravelMode,
+    maxDistanceM: Double
+): EdgeSnap? {
+    if (!position.isValid || network.isEmpty) return null
+    var best: EdgeSnap? = null
+    for (edge in network.edges) {
+        if (!mode.canUse(edge.allowsFoot, edge.allowsBike, edge.allowsCar)) continue
+        if (edge.hasStairs && mode != TravelMode.WALK) continue
+        val a = network.node(edge.fromNodeId)?.position ?: continue
+        val b = network.node(edge.toNodeId)?.position ?: continue
+        val (ax, ay) = toLocalMeters(position, a)
+        val (bx, by) = toLocalMeters(position, b)
+        val dx = bx - ax
+        val dy = by - ay
+        val lengthSquared = dx * dx + dy * dy
+        val t = if (lengthSquared <= 1e-9) 0.0
+        else ((-ax * dx - ay * dy) / lengthSquared).coerceIn(0.0, 1.0)
+        val distance = kotlin.math.hypot(ax + t * dx, ay + t * dy)
+        if (distance <= maxDistanceM && (best == null || distance < best.distanceMeters)) {
+            best = EdgeSnap(edge, interpolate(a, b, t), t, distance)
+        }
+    }
+    return best
+}
+
+private fun interpolate(a: LatLng, b: LatLng, t: Double) = LatLng(
+    a.latitude + (b.latitude - a.latitude) * t,
+    a.longitude + (b.longitude - a.longitude) * t
+)
+
+/**
+ * Inserts a node at [snap] by splitting its edge in two, so A* can start or
+ * end mid-edge. Returns the network to route on and the node id to use.
+ */
+private fun splitAt(network: PathNetwork, snap: EdgeSnap, nodeId: String): Pair<PathNetwork, String> {
+    val from = network.node(snap.edge.fromNodeId) ?: return network to snap.edge.fromNodeId
+    val to = network.node(snap.edge.toNodeId) ?: return network to snap.edge.toNodeId
+    if (distanceMeters(snap.point, from.position) <= SNAP_ENDPOINT_EPSILON_M) return network to from.id
+    if (distanceMeters(snap.point, to.position) <= SNAP_ENDPOINT_EPSILON_M) return network to to.id
+
+    val virtual = PathNode(nodeId, snap.point)
+    val edges = network.edges.filter { it.id != snap.edge.id } + listOf(
+        snap.edge.copy(id = "${snap.edge.id}#$nodeId-a", toNodeId = nodeId),
+        snap.edge.copy(id = "${snap.edge.id}#$nodeId-b", fromNodeId = nodeId)
+    )
+    return PathNetwork(network.nodes + virtual, edges) to nodeId
+}
+
+/**
+ * Drops vertices that deviate from the line between their neighbours by less
+ * than [toleranceM] (Douglas-Peucker), so turn detection sees the corners a
+ * walker actually takes and not every kink in the OSM trace.
+ */
+fun simplifyPolyline(points: List<LatLng>, toleranceM: Double = ROUTE_SIMPLIFY_TOLERANCE_M): List<LatLng> {
+    if (points.size <= 2) return points
+    val origin = points.first()
+    val xy = points.map { toLocalMeters(origin, it) }
+    val keep = BooleanArray(points.size).apply { this[0] = true; this[lastIndex] = true }
+
+    fun mark(first: Int, last: Int) {
+        if (last <= first + 1) return
+        val (x1, y1) = xy[first]
+        val (x2, y2) = xy[last]
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val length = kotlin.math.hypot(dx, dy)
+        var worst = -1
+        var worstDistance = 0.0
+        for (i in first + 1 until last) {
+            val (x, y) = xy[i]
+            val d = if (length < 1e-9) kotlin.math.hypot(x - x1, y - y1)
+            else kotlin.math.abs(dy * (x - x1) - dx * (y - y1)) / length
+            if (d > worstDistance) { worstDistance = d; worst = i }
+        }
+        if (worst >= 0 && worstDistance > toleranceM) {
+            keep[worst] = true
+            mark(first, worst)
+            mark(worst, last)
+        }
+    }
+    mark(0, points.lastIndex)
+    return points.filterIndexed { i, _ -> keep[i] }
+}
+
+/**
+ * Routes from a raw position to a landmark door over the network.
+ *
+ * Both ends are projected onto the nearest usable edge, the route runs A*
+ * between those projections, and the real endpoints are stitched on so the
+ * line starts at the user and ends at the door. The polyline is then
+ * simplified so its corners are real turns.
  *
  * Falls back to a straight line when the network cannot serve the request, so
- * navigation still works before any paths have been drawn. The caller can
- * tell the difference: a fallback route has exactly two points.
+ * navigation still works before any paths exist. The caller can tell the
+ * difference with [Route.isStraightFallback].
  */
 fun routeTo(
     network: PathNetwork,
@@ -210,23 +348,26 @@ fun routeTo(
     )
     if (network.isEmpty || !from.isValid || !to.isValid) return straight
 
-    val startNode = network.nearestNode(from) ?: return straight
-    val endNode = network.nearestNode(to) ?: return straight
+    val startSnap = snapToNetwork(network, from, mode, START_SNAP_MAX_M) ?: return straight
+    val (withStart, startId) = splitAt(network, startSnap, VIRTUAL_START_ID)
+    // Snapped against the already-split network, so a start and goal on the
+    // same edge land on different halves instead of one overwriting the other.
+    val goalSnap = snapToNetwork(withStart, to, mode, GOAL_SNAP_MAX_M) ?: return straight
+    val (withBoth, goalId) = splitAt(withStart, goalSnap, VIRTUAL_GOAL_ID)
 
-    val route = findRoute(network, startNode.id, endNode.id, mode) ?: return straight
+    val found = findRoute(withBoth, startId, goalId, mode) ?: return straight
 
-    // Stitch the real endpoints on, so the line starts at the user's actual
-    // position rather than jumping to the nearest junction.
-    val points = buildList {
+    val stitched = buildList {
         add(from)
-        addAll(route.points)
-        add(to)
+        found.points.forEach { p -> if (distanceMeters(last(), p) > SNAP_ENDPOINT_EPSILON_M) add(p) }
+        if (distanceMeters(last(), to) > SNAP_ENDPOINT_EPSILON_M) add(to) else if (size > 1) set(lastIndex, to)
     }
+    val points = simplifyPolyline(stitched)
     var distance = 0.0
     for (i in 0 until points.size - 1) {
         distance += distanceMeters(points[i], points[i + 1])
     }
-    return route.copy(points = points, distanceMeters = distance)
+    return Route(points, distance, mode, found.nodeIds)
 }
 
 /** A single turn instruction along a route. */

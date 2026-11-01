@@ -214,4 +214,47 @@ class PathNetworkTest {
             routeSteps(Route(listOf(at(0.0, 0.0)), 0.0, TravelMode.WALK, emptyList())).isEmpty()
         )
     }
+
+    @Test
+    fun `routeTo flags a straight fallback`() {
+        assertTrue(routeTo(PathNetwork(), at(0.0, 0.0), at(0.0, 200.0), TravelMode.WALK).isStraightFallback)
+        assertTrue(!routeTo(triangleNetwork(), at(-5.0, -5.0), at(5.0, 105.0), TravelMode.WALK).isStraightFallback)
+    }
+
+    /** One long straight road with junctions only at its ends, as OSM draws them. */
+    private fun longRoad() = PathNetwork(
+        nodes = listOf(PathNode("W", at(0.0, 0.0)), PathNode("E", at(0.0, 300.0))),
+        edges = listOf(PathEdge("road", "W", "E", allowsCar = true))
+    )
+
+    @Test
+    fun `standing mid-road the route starts where you are, not at a far junction`() {
+        val route = routeTo(longRoad(), at(5.0, 150.0), at(5.0, 280.0), TravelMode.WALK)
+        assertTrue("used the network", !route.isStraightFallback)
+        // Walk 5 m to the road, 130 m along it, 5 m to the door. Node snapping
+        // would have sent the user 150 m back to W first.
+        assertEquals(140.0, route.distanceMeters, 3.0)
+    }
+
+    @Test
+    fun `a door too far from every road falls back to a straight line`() {
+        val route = routeTo(longRoad(), at(5.0, 150.0), at(400.0, 150.0), TravelMode.WALK)
+        assertTrue(route.isStraightFallback)
+    }
+
+    @Test
+    fun `snapping projects onto the nearest usable edge`() {
+        val snap = snapToNetwork(longRoad(), at(10.0, 100.0), TravelMode.WALK, 50.0)!!
+        assertEquals("road", snap.edge.id)
+        assertEquals(10.0, snap.distanceMeters, 0.5)
+        assertEquals(1.0 / 3.0, snap.fraction, 0.01)
+        assertNull(snapToNetwork(longRoad(), at(80.0, 100.0), TravelMode.WALK, 50.0))
+    }
+
+    @Test
+    fun `simplification drops trace noise but keeps real corners`() {
+        val noisy = listOf(at(0.0, 0.0), at(30.0, 0.8), at(60.0, -0.6), at(100.0, 0.0), at(100.0, 80.0))
+        val simple = simplifyPolyline(noisy)
+        assertEquals(listOf(noisy[0], noisy[3], noisy[4]), simple)
+    }
 }

@@ -6,12 +6,25 @@ import com.sarab.vision.core.LatLng
 import com.sarab.vision.core.PathEdge
 import com.sarab.vision.core.PathNetwork
 import com.sarab.vision.core.PathNode
+import com.sarab.vision.core.mergeNetworks
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 private const val TAG = "SarabPaths"
 private const val FILE_NAME = "paths.json"
+
+/** The OpenStreetMap campus network shipped in assets (see licenses/OpenStreetMap-ODbL.txt). */
+private const val SEED_ASSET = "campus_paths.json"
+
+/**
+ * Bump when [SEED_ASSET] changes, or existing installs never receive the new
+ * paths. Version 1 is the first bundled OSM network (2026-11-01).
+ */
+const val CURRENT_PATH_SEED_VERSION = 1
+
+private const val PREFS = "sarab_paths"
+private const val KEY_SEED_VERSION = "seed_version"
 
 /**
  * Offline storage for the drawn path network.
@@ -27,22 +40,37 @@ class PathNetworkStore(private val context: Context) {
         get() = File(context.filesDir, FILE_NAME)
 
     fun load(): PathNetwork {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (!file.exists()) {
             val seeded = loadSeedFromAssets()
             if (!seeded.isEmpty) {
                 Log.i(TAG, "Seeded ${seeded.edges.size} path edges from assets")
                 save(seeded)
+                prefs.edit().putInt(KEY_SEED_VERSION, CURRENT_PATH_SEED_VERSION).apply()
             }
             return seeded
         }
-        return try {
+        val stored = try {
             parse(file.readText())
         } catch (e: Exception) {
             // A corrupt file must not brick the app; routing simply falls
             // back to straight lines until it is redrawn.
             Log.e(TAG, "Could not read the path network; starting empty", e)
-            PathNetwork()
+            return PathNetwork()
         }
+        if (prefs.getInt(KEY_SEED_VERSION, 0) >= CURRENT_PATH_SEED_VERSION) return stored
+        // An install from before the bundled network, or an older bundle.
+        // Hand-drawn and imported paths already on the device win every
+        // conflict (mergeNetworks keeps existing edges and snaps onto them),
+        // so a survey is never overwritten by the shipped data.
+        val seed = loadSeedFromAssets()
+        val merged = if (seed.isEmpty) stored else mergeNetworks(stored, seed)
+        if (merged !== stored) {
+            Log.i(TAG, "Merged bundled paths v$CURRENT_PATH_SEED_VERSION: ${stored.edges.size} -> ${merged.edges.size} edges")
+            save(merged)
+        }
+        prefs.edit().putInt(KEY_SEED_VERSION, CURRENT_PATH_SEED_VERSION).apply()
+        return merged
     }
 
     fun save(network: PathNetwork) {
@@ -56,7 +84,7 @@ class PathNetworkStore(private val context: Context) {
     fun exportJson(): String = serialise(load())
 
     private fun loadSeedFromAssets(): PathNetwork = try {
-        context.assets.open("paths.json").use { parse(it.bufferedReader().readText()) }
+        context.assets.open(SEED_ASSET).use { parse(it.bufferedReader().readText()) }
     } catch (e: Exception) {
         // No bundled network: entirely normal before the first survey.
         PathNetwork()

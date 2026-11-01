@@ -116,7 +116,7 @@ fun GlassesCameraScreen(
             if (religiousHud == null && poseReady && position != null && campus.guidance !is GuidanceMode.Arrived && ambiguous == null) {
                 GlassesRouteOverlay(
                     userPosition = position,
-                    routePoints = campus.route?.points.orEmpty(),
+                    routePoints = campus.routeAhead(),
                     targetPosition = target?.approachPoint(position),
                     headingDegrees = campus.headingDegrees,
                     pitchDegrees = motion.pitchDegrees ?: 0.0,

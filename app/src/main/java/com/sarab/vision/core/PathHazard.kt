@@ -83,7 +83,13 @@ fun stairsAhead(
     var travelled = 0.0
     var previous: LatLng? = null
 
-    for (nodeId in route.nodeIds) {
+    // Routes are followed rather than recomputed from the user's position, so
+    // count from the route node nearest to the user, not from the route start.
+    val startIndex = route.nodeIds.indices.minByOrNull { i ->
+        network.node(route.nodeIds[i])?.let { distanceMeters(from, it.position) } ?: Double.MAX_VALUE
+    } ?: 0
+
+    for (nodeId in route.nodeIds.drop(startIndex)) {
         val node = network.node(nodeId) ?: continue
         previous?.let { travelled += distanceMeters(it, node.position) }
         previous = node.position

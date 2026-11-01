@@ -14,8 +14,8 @@ android {
         // mid-range devices in the field.
         minSdk = 24
         targetSdk = 35
-        versionCode = 23
-        versionName = "3.4.0-glasses-lines"
+        versionCode = 24
+        versionName = "3.5.0-turn-by-turn"
 
         // NOTE: no ndk.abiFilters here. The ABI restriction lives in the
         // `splits` block below, and setting both is a configuration error.
