@@ -37,10 +37,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.sarab.vision.ArNavActivity
 import com.sarab.vision.CampusApp
-import com.sarab.vision.core.distanceMeters
 import com.sarab.vision.wear.PhoneWearBridge
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
@@ -312,21 +310,11 @@ class CompanionActivity : ComponentActivity() {
         val message = input.trim()
         if (message.isEmpty() || busy) return
         val campus = CampusApp.state(this@CompanionActivity)
-        val destinations = JSONArray(campus.landmarks.take(150).map { target ->
-            JSONObject().put("id", target.id.take(120)).put("name", target.name.take(160))
-                .put("aliases", JSONArray(target.signTexts.take(10).map { it.take(120) })).apply {
-                if (!campus.demoActive) campus.fix?.let { put("distanceMeters", distanceMeters(it.position, target.approachPoint(it.position))) }
-            }
-        })
-        val previous = JSONArray(history.takeLast(8).map { JSONObject().put("role", it.role).put("content", it.text.take(1500)) })
+        val previous = history.map { AssistantTurn(it.role, it.text) }
         history.add(ChatLine("user", message)); input = ""; busy = true; notice = ""; proposedId = null
         lifecycleScope.launch {
             try {
-                val request = JSONObject().put("message", message).put("language", store.snapshot.language)
-                    .put("context", JSONObject().put("destinationId", campus.target?.id ?: JSONObject.NULL)
-                        .put("destinationName", campus.target?.name ?: JSONObject.NULL).put("lap", platformLap(PhoneWearBridge.get(this@CompanionActivity).snapshot.value.lap) ?: JSONObject.NULL))
-                    .put("destinations", destinations).put("history", previous)
-                while (request.toString().toByteArray(Charsets.UTF_8).size > 60_000 && destinations.length() > 0) destinations.remove(destinations.length() - 1)
+                val request = assistantRequest(this@CompanionActivity, message, store.snapshot.language, previous)
                 val result = client.request("/assistant", request)
                 val reply = result.getString("reply").take(5000)
                 history.add(ChatLine("assistant", reply))

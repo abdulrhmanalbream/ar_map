@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -79,6 +80,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import com.sarab.vision.assistant.HandsFreeListener
+import com.sarab.vision.assistant.HandsFreeStatus
+import com.sarab.vision.assistant.TextAssistantVoice
+import com.sarab.vision.core.GLASSES_DISPLAY_HORIZONTAL_FOV_DEG
+import com.sarab.vision.core.GlassesOpticsCalibration
+import com.sarab.vision.core.HeadPoseHistory
+import com.sarab.vision.core.HeadPoseSample
+import com.sarab.vision.ui.GlassesAssistantIndicator
+import com.sarab.vision.ui.GlassesHelpIndicator
+import com.sarab.vision.ui.GlassesLinesHud
+import com.sarab.vision.ui.GlassesLinesSettings
+import com.sarab.vision.ui.GlassesLinesStatus
+import com.sarab.vision.ui.GlassesRouteInput
+import com.sarab.vision.ui.glassesCalibrationTarget
+import com.sarab.vision.ui.glassesOutlines
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.CameraConfig
 import com.google.ar.core.CameraConfigFilter
@@ -118,6 +135,7 @@ import com.sarab.vision.core.instructionAr
 import com.sarab.vision.ui.AmbiguityPrompt
 import com.sarab.vision.ui.BlockingMessage
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.DisposableEffect
 import com.sarab.vision.vision.EyeVisionController
 import com.sarab.vision.vision.VisionPose
@@ -177,6 +195,9 @@ class ArNavActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_TARGET_ID = "target_id"
+
+        /** Second tap within four seconds confirms; long enough to read the prompt, short enough to expire. */
+        private const val HELP_CONFIRM_MS = 4_000L
     }
 
     private lateinit var surfaceView: GLSurfaceView
@@ -221,6 +242,37 @@ class ArNavActivity : ComponentActivity() {
 
     /** User's choice: false = instrument HUD, true = mirror the phone. */
     private var glassesMirror by mutableStateOf(true)
+
+    // ---- Lines-only glasses picture and hands-free assistant -------------
+
+    /**
+     * Default output while Eye/companion modes drive the glasses: route and
+     * recognition strokes on black, never the camera video. The camera image
+     * on see-through optics doubled the real scene and hid it behind latency.
+     */
+    private var glassesLines by mutableStateOf(true)
+    private var displayFov by mutableStateOf(GLASSES_DISPLAY_HORIZONTAL_FOV_DEG.toFloat())
+    private var opticsCalibration by mutableStateOf(GlassesOpticsCalibration())
+    private var calibratingOptics by mutableStateOf(false)
+    private val headPoses = HeadPoseHistory()
+    private var handsFreeEnabled by mutableStateOf(true)
+    private var handsFreeStatus by mutableStateOf(HandsFreeStatus.OFF)
+    private lateinit var handsFree: HandsFreeListener
+    private lateinit var textAssistant: TextAssistantVoice
+    private var micPermissionAsked = false
+    /** A hands-free vision turn must not hold the microphone the way a tap-to-talk turn does. */
+    private var handsFreeVisionTurn = false
+    /** Help is sent on the second tap within this window, so a stray touch never alerts the group. */
+    private var helpConfirmUntil by mutableStateOf(0L)
+
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        DiagnosticLog.record("Permission", "Microphone (hands-free) granted=$granted")
+        updateHandsFree()
+    }
+
+    private val linesHud: @androidx.compose.runtime.Composable () -> Unit = { GlassesLinesContent() }
 
     private var useEyeCamera by mutableStateOf(true)
     private lateinit var eyeCamera: EyeCameraController
@@ -380,6 +432,7 @@ class ArNavActivity : ComponentActivity() {
         com.sarab.vision.platform.PlatformStore.get(this).language(language)
         religiousVision.setLanguage(language)
         val firstChoice = !languageConfirmed
+        if (handsFree.active) { handsFree.stop(); updateHandsFree() }
         languageConfirmed = true
         if (firstChoice) {
             requestedOrientation = if (useEyeCamera) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -413,6 +466,18 @@ class ArNavActivity : ComponentActivity() {
             else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         applyCameraWindow()
         horizontalFov = preferences.getFloat("eye_horizontal_fov", 70f).coerceIn(40f, 110f)
+        glassesLines = preferences.getString("glasses_output", "lines") != "mirror"
+        displayFov = preferences.getFloat("glasses_display_fov", GLASSES_DISPLAY_HORIZONTAL_FOV_DEG.toFloat()).coerceIn(35f, 70f)
+        opticsCalibration = GlassesOpticsCalibration(
+            preferences.getFloat("glasses_offset_x", 0f).toDouble(),
+            preferences.getFloat("glasses_offset_y", 0f).toDouble(),
+            preferences.getFloat("glasses_scale", 1f).toDouble(),
+        ).bounded()
+        handsFreeEnabled = preferences.getBoolean("hands_free", true)
+        textAssistant = TextAssistantVoice(this, lifecycleScope)
+        handsFree = HandsFreeListener(this,
+            onQuestion = { question -> runOnUiThread { onHandsFreeQuestion(question) } },
+            shouldHold = { holdHandsFree() })
         eyeCamera = EyeCameraController(this)
         phoneCamera = PhoneCameraController(this)
         phoneMotion = PhoneMotionController(this)
@@ -439,7 +504,9 @@ class ArNavActivity : ComponentActivity() {
                 if (!connected) {
                     hudMenu = HudMenuState.Closed
                     if (useEyeCamera) voice.stop()
+                    calibratingOptics = false
                 }
+                updateHandsFree()
             }
         )
         glasses.setMirror(true)
@@ -481,7 +548,22 @@ class ArNavActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    headMotion.state.collect { refreshHeadHeading() }
+                    headMotion.state.collect { motion ->
+                        val yaw = motion.yawDegrees
+                        val pitch = motion.pitchDegrees
+                        if (motion.tracking && yaw != null && pitch != null && motion.lastSampleElapsedRealtimeNanos > 0L) {
+                            headPoses.add(HeadPoseSample(motion.lastSampleElapsedRealtimeNanos / 1_000_000L,
+                                yaw, pitch, motion.sessionId))
+                        }
+                        refreshHeadHeading()
+                    }
+                }
+                launch { handsFree.status.collect { handsFreeStatus = it } }
+                launch {
+                    religiousVision.state.collect { vision ->
+                        // The hands-free turn ends once its answer (or failure) has landed.
+                        if (handsFreeVisionTurn && !vision.asking && !vision.requestBusy) handsFreeVisionTurn = false
+                    }
                 }
                 launch {
                     eyeCamera.state.collect { refreshHeadHeading() }
@@ -702,7 +784,11 @@ class ArNavActivity : ComponentActivity() {
                         imageError = if (imageImportError) VisionCopy(visionState.language).imageError else null,
                     )
                 } else null,
+                glassesSettings = { GlassesSettingsSection() },
+                showCenterMark = calibratingOptics && glassesConnected,
             )
+            // Always reachable while the camera companion is up, glasses or not.
+            HelpButton(Modifier.align(Alignment.CenterStart).padding(12.dp))
             DestinationPicker(
                 landmarks = campus.landmarks,
                 userFix = campus.fix,
@@ -725,6 +811,236 @@ class ArNavActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Eye/companion modes draw the lines picture on the glasses; phone AR keeps its own chip. */
+    private fun applyGlassesOutput() {
+        val lines = (useEyeCamera || religiousMode) && glassesLines
+        glasses.linesContent = if (lines) linesHud else null
+        glassesMirror = !lines
+        glasses.setMirror(!lines)
+        DiagnosticLog.record("Display", "output=${if (lines) "lines" else "mirror"}")
+    }
+
+    private fun chooseGlassesLines(on: Boolean) {
+        glassesLines = on
+        if (!on) calibratingOptics = false
+        getPreferences(MODE_PRIVATE).edit().putString("glasses_output", if (on) "lines" else "mirror").apply()
+        if (resumed) applyGlassesOutput()
+    }
+
+    private fun saveOptics(value: GlassesOpticsCalibration) {
+        opticsCalibration = value.bounded()
+        getPreferences(MODE_PRIVATE).edit()
+            .putFloat("glasses_offset_x", opticsCalibration.offsetXDegrees.toFloat())
+            .putFloat("glasses_offset_y", opticsCalibration.offsetYDegrees.toFloat())
+            .putFloat("glasses_scale", opticsCalibration.scale.toFloat()).apply()
+    }
+
+    private fun chooseHandsFree(on: Boolean) {
+        handsFreeEnabled = on
+        getPreferences(MODE_PRIVATE).edit().putBoolean("hands_free", on).apply()
+        if (on) micPermissionAsked = false
+        updateHandsFree()
+    }
+
+    /**
+     * Hands-free runs only while the glasses are on, the app is in front and
+     * the wearer has not switched it off. Without glasses the phone's own
+     * microphone button is the better, more private control.
+     */
+    private fun updateHandsFree() {
+        if (!::handsFree.isInitialized) return
+        val wanted = resumed && languageConfirmed && glassesConnected && handsFreeEnabled
+        if (!wanted) { handsFree.stop(); return }
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            handsFree.stop()
+            if (!micPermissionAsked) {
+                micPermissionAsked = true
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+            return
+        }
+        handsFree.start(languagePreference.language)
+    }
+
+    /** Never listen while a tap-to-talk turn owns the microphone or our own reply is playing. */
+    private fun holdHandsFree(): Boolean {
+        val vision = religiousVision.state.value
+        return (vision.voiceBusy && !handsFreeVisionTurn) || textAssistant.state.value.speaking
+    }
+
+    private fun onHandsFreeQuestion(question: String) {
+        if (!resumed) return
+        val vision = religiousVision.state.value
+        val muted = navigationAudioPrefs.getBoolean("muted", false)
+        // With image consent in the companion, the question is about what the
+        // wearer is looking at; it goes with the current snapshot. Otherwise it
+        // is a text question, which never carries an image.
+        if (religiousMode && vision.enabled && !vision.isImportedImage && !vision.asking) {
+            handsFreeVisionTurn = true
+            if (religiousVision.beginVoiceTurn()) {
+                religiousVision.askLive(question)
+                return
+            }
+            handsFreeVisionTurn = false
+        }
+        textAssistant.ask(question, languagePreference.language, muted,
+            notEnrolledMessage = "اربط التطبيق بالمجموعة أولاً من شاشة المساعد ليجيبك المطوف.")
+    }
+
+    private fun requestHelp(enrolled: Boolean) {
+        if (!enrolled) {
+            startActivity(Intent(this, com.sarab.vision.platform.CompanionActivity::class.java)
+                .putExtra("return_to_vision", true))
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (now > helpConfirmUntil) {
+            helpConfirmUntil = now + HELP_CONFIRM_MS
+            return
+        }
+        helpConfirmUntil = 0L
+        val store = com.sarab.vision.platform.PlatformStore.get(this)
+        runCatching {
+            store.queue("help", org.json.JSONObject().put("message", "أحتاج مساعدة من المجموعة"))
+            com.sarab.vision.platform.CompanionSyncService.start(this)
+        }.onSuccess {
+            DiagnosticLog.record("Help", "help queued from camera screen")
+            Toast.makeText(this, "طلب المساعدة محفوظ ويُرسل للمجموعة عند الاتصال", Toast.LENGTH_LONG).show()
+        }.onFailure {
+            Toast.makeText(this, it.message ?: "تعذّر حفظ طلب المساعدة", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun HelpButton(modifier: Modifier) {
+        val platformState by com.sarab.vision.platform.PlatformStore.get(this).state.collectAsState()
+        var confirming by remember { mutableStateOf(false) }
+        LaunchedEffect(helpConfirmUntil) {
+            val remaining = helpConfirmUntil - SystemClock.elapsedRealtime()
+            confirming = remaining > 0L
+            if (confirming) {
+                delay(remaining)
+                confirming = false
+            }
+        }
+        val pending = platformState.helpPending
+        androidx.compose.material3.Button(
+            onClick = {
+                if (pending) com.sarab.vision.platform.PlatformStore.get(this).clearHelp()
+                else requestHelp(platformState.enrolled)
+            },
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = if (pending) Hedayah.Hud.copy(alpha = 0.9f) else Color(0xFFB3261E),
+                contentColor = Color.White),
+            modifier = modifier.heightIn(min = 52.dp),
+        ) {
+            Text(when {
+                pending -> "أنا بخير · إلغاء طلب المساعدة"
+                confirming -> "اضغط مرة أخرى لإرسال طلب المساعدة"
+                else -> "طلب مساعدة"
+            }, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        }
+    }
+
+    /** What the glasses show in lines mode; recomposed from the same state as the phone. */
+    @androidx.compose.runtime.Composable
+    private fun GlassesLinesContent() {
+        val motion by headMotion.state.collectAsState()
+        val vision by religiousVision.state.collectAsState()
+        val text by textAssistant.state.collectAsState()
+        val platformState by com.sarab.vision.platform.PlatformStore.get(this).state.collectAsState()
+        val menuView = hudMenuView(hudMenu, campus.fix?.position)
+        if (menuView != null) {
+            // The eyes-free destination menu keeps its own full-screen panel.
+            GlassesHud(campus.guidance, campus.target?.name, null, false, menuView)
+            return
+        }
+        val helpPending = platformState.helpPending
+        var helpSending by remember { mutableStateOf(false) }
+        LaunchedEffect(helpPending) {
+            helpSending = false
+            // The outbox drains asynchronously in CompanionSyncService; polling
+            // it is the only signal that the alert has actually left the phone.
+            while (helpPending) {
+                helpSending = com.sarab.vision.platform.PlatformStore.get(this@ArNavActivity).pending()
+                    .any { it.optString("kind") == "help" }
+                delay(2_000)
+            }
+        }
+        val position = campus.fix?.position
+        val heading = campus.headingDegrees
+        val target = campus.target
+        val eyePose = useEyeCamera && northOffset != null && motion.tracking
+        val route = if (position != null && heading != null && target != null) GlassesRouteInput(
+            position = position,
+            routePoints = campus.route?.points.orEmpty(),
+            targetPosition = target.approachPoint(position),
+            headingDegrees = heading,
+            pitchDegrees = if (eyePose) alignedGlassesTilt(motion.pitchDegrees, horizonPitch) else null,
+            rollDegrees = if (eyePose) alignedGlassesTilt(motion.rollDegrees, horizonRoll) else null,
+        ) else null
+        val outlines = if (useEyeCamera && !calibratingOptics) glassesOutlines(vision, motion, headPoses,
+            horizontalFov.toDouble(), displayFov.toDouble(), opticsCalibration) else emptyList()
+        val visionAnswer = if (religiousMode) vision.reply else null
+        val useVisionAnswer = visionAnswer != null && (text.reply == null || vision.conversationRevision >= text.revision)
+        val assistant = when {
+            handsFreeStatus == HandsFreeStatus.LISTENING_FOR_QUESTION || (vision.voiceBusy && !handsFreeVisionTurn) ->
+                GlassesAssistantIndicator.LISTENING
+            vision.asking || text.busy -> GlassesAssistantIndicator.THINKING
+            text.speaking -> GlassesAssistantIndicator.SPEAKING
+            handsFreeStatus == HandsFreeStatus.WAITING_FOR_WAKE || handsFreeStatus == HandsFreeStatus.PAUSED ->
+                GlassesAssistantIndicator.WAITING_FOR_WAKE
+            else -> GlassesAssistantIndicator.NONE
+        }
+        GlassesLinesHud(
+            route = route,
+            outlines = outlines,
+            status = GlassesLinesStatus(
+                assistant = assistant,
+                answer = if (useVisionAnswer) visionAnswer else text.reply,
+                // Separate revision spaces so a vision answer and a text answer never alias.
+                answerRevision = if (useVisionAnswer) vision.conversationRevision * 2 else text.revision * 2 + 1,
+                help = when {
+                    !helpPending -> GlassesHelpIndicator.NONE
+                    helpSending -> GlassesHelpIndicator.SENDING
+                    else -> GlassesHelpIndicator.SENT
+                },
+                hint = when {
+                    useEyeCamera && northOffset == null -> "اضبط الاتجاه والأفق من إعدادات الجوال"
+                    campus.compassNeedsCalibration && !useEyeCamera -> "البوصلة تحتاج معايرة"
+                    else -> null
+                },
+                arrived = target != null && campus.guidance is GuidanceMode.Arrived,
+                ambiguous = campus.guidance is GuidanceMode.Ambiguous,
+            ),
+            displayHorizontalFovDegrees = displayFov.toDouble(),
+            calibrationTarget = if (calibratingOptics) glassesCalibrationTarget(opticsCalibration, displayFov.toDouble()) else null,
+        )
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun GlassesSettingsSection() {
+        GlassesLinesSettings(
+            linesMode = glassesLines,
+            onLinesModeChange = ::chooseGlassesLines,
+            handsFree = handsFreeEnabled,
+            handsFreeStatus = handsFreeStatus,
+            onHandsFreeChange = ::chooseHandsFree,
+            displayFov = displayFov,
+            onDisplayFovChange = {
+                displayFov = it
+                getPreferences(MODE_PRIVATE).edit().putFloat("glasses_display_fov", it).apply()
+            },
+            calibration = opticsCalibration,
+            calibrating = calibratingOptics,
+            onCalibratingChange = { calibratingOptics = it && glassesLines },
+            onCalibrationChange = ::saveOptics,
+            eyeCamera = useEyeCamera,
+        )
     }
 
     private fun clearHeadAlignment() {
@@ -817,6 +1133,7 @@ class ArNavActivity : ComponentActivity() {
         if (!languageConfirmed || !resumed || imagePickerPending || imageImportBusy) return
         if (religiousVision.state.value.isImportedImage) {
             stopCameraForPhoto()
+            glasses.linesContent = null
             glassesMirror = true
             glasses.setMirror(true)
             glasses.start()
@@ -830,8 +1147,7 @@ class ArNavActivity : ComponentActivity() {
         campus.onUpdate = { syncRenderer(); onGuidanceTick() }
         syncRenderer()
         onGuidanceTick()
-        glassesMirror = true
-        glasses.setMirror(true)
+        applyGlassesOutput()
         glasses.start()
         if (useEyeCamera || religiousMode) {
             // ARCore's camera pose and floor belong to the phone. Feeding Eye
@@ -1574,11 +1890,15 @@ class ArNavActivity : ComponentActivity() {
         ) == PackageManager.PERMISSION_GRANTED
 
         startNavigation()
+        updateHandsFree()
     }
 
     override fun onPause() {
         logLifecycle("paused")
         resumed = false
+        // The microphone is never kept open behind another app or a locked screen.
+        handsFree.stop()
+        textAssistant.stopSpeaking()
         resetNavigationVoice()
         cameraTransition++
         if (::religiousVision.isInitialized) religiousVision.setForeground(false)
@@ -1622,6 +1942,8 @@ class ArNavActivity : ComponentActivity() {
         eyeCamera.stop()
         headMotion.stop()
         voice.shutdown()
+        handsFree.stop()
+        textAssistant.close()
         navigationAudioPrefs.unregisterOnSharedPreferenceChangeListener(navigationMuteListener)
         mediaSession?.release()
         mediaSession = null

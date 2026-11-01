@@ -15,6 +15,10 @@ import android.view.MotionEvent
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -59,6 +63,14 @@ class GlassesDisplayController(
     private var presentation: GlassesHudPresentation? = null
     private var lastConnected = false
     private var mirror = true
+
+    /**
+     * Replaces the instrument HUD inside the presentation when set. Eye and
+     * companion modes put their lines-only picture here; held as Compose
+     * state so switching modes recomposes the open window instead of
+     * re-creating it.
+     */
+    var linesContent: (@Composable () -> Unit)? by mutableStateOf(null)
     var observing: Boolean = false
         private set
 
@@ -126,7 +138,7 @@ class GlassesDisplayController(
         if (presentation?.display?.displayId == display.displayId) return
 
         presentation?.dismiss()
-        presentation = GlassesHudPresentation(activity, display, campus, menu, onCommand)
+        presentation = GlassesHudPresentation(activity, display, campus, menu, onCommand) { linesContent }
         try {
             presentation?.show()
             Log.i(TAG, "HUD presented on external display: ${display.name}")
@@ -144,7 +156,8 @@ private class GlassesHudPresentation(
     display: Display,
     private val campus: CampusState,
     private val menu: () -> HudMenuState,
-    private val onCommand: (HudCommand) -> Unit
+    private val onCommand: (HudCommand) -> Unit,
+    private val lines: () -> (@Composable () -> Unit)?,
 ) : Presentation(activity, display) {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -168,7 +181,8 @@ private class GlassesHudPresentation(
             setViewTreeSavedStateRegistryOwner(activity)
             setContent {
             HedayahTheme(camera = true) {
-                GlassesHud(
+                val custom = lines()
+                if (custom != null) custom() else GlassesHud(
                     guidance = campus.guidance,
                     targetName = campus.target?.name,
                     relativeDegrees = relativeToTarget(),

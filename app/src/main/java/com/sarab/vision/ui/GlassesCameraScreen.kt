@@ -73,6 +73,9 @@ fun GlassesCameraScreen(
     imageActionLabel: String = "اختيار صورة",
     imageBusy: Boolean = false,
     imageError: String? = null,
+    glassesSettings: (@Composable () -> Unit)? = null,
+    /** Marks the camera centre while the wearer matches the glasses outline to it. */
+    showCenterMark: Boolean = false,
 ) {
     var settingsOpen by remember { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -160,6 +163,18 @@ fun GlassesCameraScreen(
                 if (onChooseImage != null) TextButton(onClick = onChooseImage, enabled = !imageBusy,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(imageActionLabel, color = EyeAccent) }
                 imageError?.let { Text(it, color = Hedayah.HudGold) }
+            }
+        }
+
+        if (showCenterMark && previewLive) {
+            // The cropped image keeps its centre at the viewport centre, so this
+            // marks exactly what the camera's optical centre is looking at.
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                val c = center
+                val arm = 26.dp.toPx()
+                val stroke = 3.dp.toPx()
+                drawLine(Color(0xFFFFC46B), c.copy(x = c.x - arm), c.copy(x = c.x + arm), stroke)
+                drawLine(Color(0xFFFFC46B), c.copy(y = c.y - arm), c.copy(y = c.y + arm), stroke)
             }
         }
 
@@ -323,6 +338,11 @@ fun GlassesCameraScreen(
                         } else {
                             Text("وجّه كاميرا الجوال الخلفية إلى المعلم أو اللوحة وثبّت الهاتف لحظات. هذا الوضع يستخدم المرافق الديني والعدّاد نفسه.",
                                 color = EyeMuted, fontSize = 14.sp)
+                        }
+                        if (glassesSettings != null) {
+                            Spacer(Modifier.height(20.dp))
+                            glassesSettings()
+                            Spacer(Modifier.height(12.dp))
                         }
                         TextButton(onClick = onOpenTools, modifier = Modifier.heightIn(min = 48.dp)) {
                             Text("الخريطة والأدوات", color = EyeAccent)
